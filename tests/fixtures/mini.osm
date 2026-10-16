@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Синтетический мини-фрагмент для теста сборки справочника (не реальные данные OSM). -->
+<osm version="0.6" generator="handmade">
+  <node id="1" lat="43.20" lon="76.80"/><node id="2" lat="43.20" lon="77.00"/>
+  <node id="3" lat="43.35" lon="77.00"/><node id="4" lat="43.35" lon="76.80"/>
+  <node id="5" lat="43.20" lon="76.90"/><node id="6" lat="43.35" lon="76.90"/>
+  <node id="10" lat="43.25" lon="76.95"><tag k="place" v="city"/><tag k="name" v="Алматы"/><tag k="name:ru" v="Алматы"/></node>
+  <node id="11" lat="43.23" lon="76.93"><tag k="place" v="suburb"/><tag k="name" v="микрорайон Самал-2"/><tag k="name:kk" v="Самал-2 шағын ауданы"/></node>
+  <node id="20" lat="43.24" lon="76.95"/><node id="21" lat="43.24" lon="76.96"/><node id="22" lat="43.24" lon="76.97"/>
+  <node id="23" lat="43.30" lon="76.85"/><node id="24" lat="43.30" lon="76.86"/>
+  <node id="30" lat="43.2410" lon="76.9510"/><node id="31" lat="43.2410" lon="76.9520"/>
+  <node id="32" lat="43.2420" lon="76.9520"/><node id="33" lat="43.2420" lon="76.9510"/>
+  <node id="40" lat="43.3010" lon="76.8510"><tag k="addr:street" v="улица Курильская"/><tag k="addr:housenumber" v="9"/></node>
+  <way id="100"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="4"/><tag k="name" v="Алматы"/><tag k="name:ru" v="Алматы"/></way>
+  <way id="101"><nd ref="5"/><nd ref="2"/><nd ref="3"/><nd ref="6"/><nd ref="5"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="6"/><tag k="name" v="Медеуский район"/><tag k="name:kk" v="Медеу ауданы"/></way>
+  <way id="102"><nd ref="1"/><nd ref="5"/><nd ref="6"/><nd ref="4"/><nd ref="1"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="6"/><tag k="name" v="Алатауский район"/></way>
+  <way id="200"><nd ref="20"/><nd ref="21"/><nd ref="22"/>
+    <tag k="highway" v="residential"/><tag k="name" v="улица Абая"/><tag k="name:kk" v="Абай көшесі"/><tag k="old_name" v="улица Ленина"/></way>
+  <way id="201"><nd ref="23"/><nd ref="24"/>
+    <tag k="highway" v="residential"/><tag k="name" v="Курильская улица"/></way>
+  <way id="300"><nd ref="30"/><nd ref="31"/><nd ref="32"/><nd ref="33"/><nd ref="30"/>
+    <tag k="building" v="yes"/><tag k="addr:street" v="улица Абая"/><tag k="addr:housenumber" v="10"/></way>
+</osm>

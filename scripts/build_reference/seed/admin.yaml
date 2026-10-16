@@ -1,0 +1,200 @@
+# Ручное ядро справочника (source=seed). Собрано по общедоступным сведениям об АТД РК (2022+):
+# 17 областей, 3 города республиканского значения и их районы, областные центры и крупные города.
+# OSM и КАТО (build_sqlite.py) дополняют это ядро. При конфликте названия ядра считаются каноническими
+# для формата ответа: область «Актюбинская область», город «Актобе», район «Илийский».
+#
+# aliases: любые написания (рус/каз/лат/старые). fold() снимает регистр, ё/е, казахские буквы, дефисы.
+
+provinces:
+  - {name: Абайская область, short: Абайская, kk: Абай облысы, center: Семей, aliases: [Abai region, Abay oblysy, Абай]}
+  - {name: Акмолинская область, short: Акмолинская, kk: Ақмола облысы, center: Кокшетау, aliases: [Akmola region, Akmolinskaya, Акмола, Ақмола]}
+  - {name: Актюбинская область, short: Актюбинская, kk: Ақтөбе облысы, center: Актобе, aliases: [Aktobe region, Aktyubinskaya, Ақтөбе облысы]}
+  - {name: Алматинская область, short: Алматинская, kk: Алматы облысы, center: Конаев, aliases: [Almaty region, Almatinskaya, Алматы облысы]}
+  - {name: Атырауская область, short: Атырауская, kk: Атырау облысы, center: Атырау, aliases: [Atyrau region, Atyrauskaya, Гурьевская]}
+  - {name: Восточно-Казахстанская область, short: Восточно-Казахстанская, kk: Шығыс Қазақстан облысы, center: Усть-Каменогорск, aliases: [ВКО, East Kazakhstan region, VKO, Шығыс Қазақстан, Восточно Казахстанская]}
+  - {name: Жамбылская область, short: Жамбылская, kk: Жамбыл облысы, center: Тараз, aliases: [Zhambyl region, Jambyl region, Жамбыл, Джамбульская]}
+  - {name: Жетысуская область, short: Жетысуская, kk: Жетісу облысы, center: Талдыкорган, aliases: [Zhetysu region, Jetisu region, Жетісу, Жетысу]}
+  - {name: Западно-Казахстанская область, short: Западно-Казахстанская, kk: Батыс Қазақстан облысы, center: Уральск, aliases: [ЗКО, West Kazakhstan region, ZKO, Батыс Қазақстан, Западно Казахстанская]}
+  - {name: Карагандинская область, short: Карагандинская, kk: Қарағанды облысы, center: Караганда, aliases: [Karaganda region, Qaragandy region, Karagandinskaya, Қарағанды]}
+  - {name: Костанайская область, short: Костанайская, kk: Қостанай облысы, center: Костанай, aliases: [Kostanay region, Qostanay region, Kostanaiskaya, Кустанайская, Қостанай]}
+  - {name: Кызылординская область, short: Кызылординская, kk: Қызылорда облысы, center: Кызылорда, aliases: [Kyzylorda region, Qyzylorda region, Kyzylordinskaya, Қызылорда]}
+  - {name: Мангистауская область, short: Мангистауская, kk: Маңғыстау облысы, center: Актау, aliases: [Mangystau region, Mangistau region, Мангыстауская, Маңғыстау, Мангистау]}
+  - {name: Павлодарская область, short: Павлодарская, kk: Павлодар облысы, center: Павлодар, aliases: [Pavlodar region, Pavlodarskaya]}
+  - {name: Северо-Казахстанская область, short: Северо-Казахстанская, kk: Солтүстік Қазақстан облысы, center: Петропавловск, aliases: [СКО, North Kazakhstan region, SKO, Солтүстік Қазақстан, Северо Казахстанская]}
+  - {name: Туркестанская область, short: Туркестанская, kk: Түркістан облысы, center: Туркестан, aliases: [Turkistan region, Turkestan region, ЮКО, Южно-Казахстанская, Южно Казахстанская, Түркістан облысы]}
+  - {name: Улытауская область, short: Улытауская, kk: Ұлытау облысы, center: Жезказган, aliases: [Ulytau region, Ұлытау, Улутауская, Улутауская область, Улытау]}
+
+# города республиканского значения: province = название города
+republican_cities:
+  - name: Алматы
+    kk: Алматы
+    aliases: [Алма-Ата, Алмата, Almaty, Alma-Ata, Алматы қаласы, Almaty city, Алматы г]
+    districts:
+      - {name: Алатауский, aliases: [Алатау, Алатау ауданы, Alatau, Alatauskiy]}
+      - {name: Алмалинский, aliases: [Алмалы, Алмалы ауданы, Almaly, Almalinskiy]}
+      - {name: Ауэзовский, aliases: [Ауэзов, Әуезов, Әуезов ауданы, Auezov, Auezovskiy, Ауезовский]}
+      - {name: Бостандыкский, aliases: [Бостандык, Бостандық, Бостандық ауданы, Bostandyk, Bostandykskiy]}
+      - {name: Жетысуский, aliases: [Жетысу, Жетісу, Жетісу ауданы, Zhetysu, Zhetysuskiy]}
+      - {name: Медеуский, aliases: [Медеу, Медеу ауданы, Medeu, Medeuskiy]}
+      - {name: Наурызбайский, aliases: [Наурызбай, Наурызбай ауданы, Nauryzbay, Nauryzbayskiy]}
+      - {name: Турксибский, aliases: [Турксиб, Түрксіб, Түрксіб ауданы, Turksib, Turksibskiy]}
+  - name: Астана
+    kk: Астана
+    aliases: [Нур-Султан, Нурсултан, Нур Султан, Акмола, Целиноград, Астана қаласы, Astana, Nur-Sultan, Nursultan, Ақмола]
+    districts:
+      - {name: Алматы, aliases: [Алматинский, Алматы ауданы, Almaty district]}
+      - {name: Байконур, aliases: [Байқоңыр, Байконурский, Байқоңыр ауданы, Baikonur, Baykonur]}
+      - {name: Есиль, aliases: [Есіл, Есильский, Есіл ауданы, Yesil, Esil]}
+      - {name: Нура, aliases: [Нуринский, Нұра, Нұра ауданы, Nura]}
+      - {name: Сарыарка, aliases: [Сарыарқа, Сарыаркинский, Сарыарқа ауданы, Saryarka, Saryarqa]}
+      - {name: Сарайшык, aliases: [Сарайшық, Сарайшыкский, Сарайшық ауданы, Saraishyk]}
+  - name: Шымкент
+    kk: Шымкент
+    aliases: [Чимкент, Shymkent, Chimkent, Шымкент қаласы]
+    districts:
+      - {name: Абайский, aliases: [Абай, Абай ауданы, Abay, Abayskiy]}
+      - {name: Аль-Фарабийский, aliases: [Аль-Фараби, Әл-Фараби, Әл-Фараби ауданы, Al-Farabi, Альфарабийский]}
+      - {name: Енбекшинский, aliases: [Енбекши, Еңбекші, Еңбекші ауданы, Enbekshi]}
+      - {name: Каратауский, aliases: [Каратау, Қаратау, Қаратау ауданы, Karatau]}
+      - {name: Туранский, aliases: [Туран, Тұран, Тұран ауданы, Turan]}
+
+# города областного и районного значения и крупные посёлки
+# kind: city (областной центр / город), town (малый город, посёлок), village (село)
+cities:
+  # областные центры
+  - {name: Семей, province: Абайская область, kind: city, aliases: [Семипалатинск, Semey, Semei]}
+  - {name: Кокшетау, province: Акмолинская область, kind: city, aliases: [Көкшетау, Кокчетав, Kokshetau]}
+  - {name: Актобе, province: Актюбинская область, kind: city, aliases: [Ақтөбе, Актюбинск, Aktobe, Aqtobe]}
+  - {name: Конаев, province: Алматинская область, kind: city, aliases: [Қонаев, Капшагай, Қапшағай, Konaev, Qonaev, Kapshagay]}
+  - {name: Атырау, province: Атырауская область, kind: city, aliases: [Гурьев, Atyrau]}
+  - {name: Усть-Каменогорск, province: Восточно-Казахстанская область, kind: city, aliases: [Өскемен, Оскемен, Ust-Kamenogorsk, Oskemen, Усть Каменогорск, УКГ]}
+  - {name: Тараз, province: Жамбылская область, kind: city, aliases: [Джамбул, Жамбыл, Taraz]}
+  - {name: Талдыкорган, province: Жетысуская область, kind: city, aliases: [Талдықорған, Taldykorgan, Taldyqorgan]}
+  - {name: Уральск, province: Западно-Казахстанская область, kind: city, aliases: [Орал, Uralsk, Oral]}
+  - {name: Караганда, province: Карагандинская область, kind: city, aliases: [Қарағанды, Караганды, Karaganda, Qaragandy]}
+  - {name: Костанай, province: Костанайская область, kind: city, aliases: [Қостанай, Кустанай, Kostanay, Qostanay]}
+  - {name: Кызылорда, province: Кызылординская область, kind: city, aliases: [Қызылорда, Kyzylorda, Qyzylorda]}
+  - {name: Актау, province: Мангистауская область, kind: city, aliases: [Ақтау, Шевченко, Aktau, Aqtau]}
+  - {name: Павлодар, province: Павлодарская область, kind: city, aliases: [Pavlodar]}
+  - {name: Петропавловск, province: Северо-Казахстанская область, kind: city, aliases: [Петропавл, Petropavlovsk, Petropavl]}
+  - {name: Туркестан, province: Туркестанская область, kind: city, aliases: [Түркістан, Turkistan, Turkestan]}
+  - {name: Жезказган, province: Улытауская область, kind: city, aliases: [Жезқазған, Zhezkazgan, Jezkazgan]}
+  # прочие города
+  - {name: Курчатов, province: Абайская область, kind: city, aliases: [Kurchatov]}
+  - {name: Аягоз, province: Абайская область, kind: city, aliases: [Аягөз, Ayagoz]}
+  - {name: Степногорск, province: Акмолинская область, kind: city, aliases: [Stepnogorsk]}
+  - {name: Щучинск, province: Акмолинская область, kind: city, aliases: [Щучье, Shchuchinsk]}
+  - {name: Косшы, province: Акмолинская область, kind: city, aliases: [Қосшы, Kosshy, Koshy]}
+  - {name: Атбасар, province: Акмолинская область, kind: city, aliases: [Atbasar]}
+  - {name: Хромтау, province: Актюбинская область, kind: city, aliases: [Khromtau]}
+  - {name: Кандыагаш, province: Актюбинская область, kind: city, aliases: [Қандыағаш, Kandyagash]}
+  - {name: Каскелен, province: Алматинская область, kind: city, district: Карасайский, aliases: [Қаскелең, Kaskelen]}
+  - {name: Талгар, province: Алматинская область, kind: city, district: Талгарский, aliases: [Талғар, Talgar]}
+  - {name: Есик, province: Алматинская область, kind: city, district: Енбекшиказахский, aliases: [Есік, Иссык, Esik, Issyk]}
+  - {name: Алатау, province: Алматинская область, kind: city, aliases: [Alatau city, Г.А.]}
+  - {name: Кульсары, province: Атырауская область, kind: city, aliases: [Құлсары, Kulsary]}
+  - {name: Риддер, province: Восточно-Казахстанская область, kind: city, aliases: [Лениногорск, Ridder]}
+  - {name: Алтай, province: Восточно-Казахстанская область, kind: city, aliases: [Зыряновск, Altai]}
+  - {name: Шу, province: Жамбылская область, kind: city, aliases: [Шуы, Shu]}
+  - {name: Каратау, province: Жамбылская область, kind: city, aliases: [Karatau city]}
+  - {name: Жаркент, province: Жетысуская область, kind: city, aliases: [Zharkent]}
+  - {name: Текели, province: Жетысуская область, kind: city, aliases: [Tekeli]}
+  - {name: Аксай, province: Западно-Казахстанская область, kind: city, aliases: [Ақсай, Aksay city]}
+  - {name: Темиртау, province: Карагандинская область, kind: city, aliases: [Теміртау, Temirtau]}
+  - {name: Балхаш, province: Карагандинская область, kind: city, aliases: [Балқаш, Balkhash]}
+  - {name: Сатпаев, province: Улытауская область, kind: city, aliases: [Сәтбаев, Satpayev, Satbayev]}
+  - {name: Шахтинск, province: Карагандинская область, kind: city, aliases: [Shakhtinsk]}
+  - {name: Сарань, province: Карагандинская область, kind: city, aliases: [Saran]}
+  - {name: Абай, province: Карагандинская область, kind: city, aliases: [Abay city]}
+  - {name: Приозёрск, province: Карагандинская область, kind: city, aliases: [Приозерск, Priozersk]}
+  - {name: Каражал, province: Улытауская область, kind: city, aliases: [Қаражал, Karazhal]}
+  - {name: Рудный, province: Костанайская область, kind: city, aliases: [Rudny, Rudnyy]}
+  - {name: Лисаковск, province: Костанайская область, kind: city, aliases: [Lisakovsk]}
+  - {name: Аркалык, province: Костанайская область, kind: city, aliases: [Арқалық, Arkalyk]}
+  - {name: Байконыр, province: Кызылординская область, kind: city, aliases: [Байконур, Байқоңыр, Baikonur city]}
+  - {name: Аральск, province: Кызылординская область, kind: city, aliases: [Арал, Aralsk]}
+  - {name: Жанаозен, province: Мангистауская область, kind: city, aliases: [Жаңаөзен, Новый Узень, Zhanaozen]}
+  - {name: Экибастуз, province: Павлодарская область, kind: city, aliases: [Екібастұз, Ekibastuz]}
+  - {name: Аксу, province: Павлодарская область, kind: city, aliases: [Ақсу, Ермак, Aksu]}
+  - {name: Кентау, province: Туркестанская область, kind: city, aliases: [Kentau]}
+  - {name: Арыс, province: Туркестанская область, kind: city, aliases: [Arys]}
+  - {name: Сарыагаш, province: Туркестанская область, kind: city, district: Сарыагашский, aliases: [Сарыағаш, Saryagash]}
+  - {name: Жетысай, province: Туркестанская область, kind: city, district: Жетысайский, aliases: [Жетісай, Zhetysai]}
+  - {name: Ленгер, province: Туркестанская область, kind: city, district: Толебийский, aliases: [Lenger]}
+  - {name: Шардара, province: Туркестанская область, kind: city, district: Шардаринский, aliases: [Шардара, Shardara]}
+  # пригороды Алматы и Астаны, частые в доставке
+  - {name: Боралдай, province: Алматинская область, district: Илийский, kind: town, aliases: [Бурундай, Boralday, Burunday]}
+  - {name: Отеген батыр, province: Алматинская область, district: Илийский, kind: town, aliases: [Өтеген батыр, Otegen batyr, Отегенбатыр]}
+  - {name: Байсерке, province: Алматинская область, district: Илийский, kind: village, aliases: [Baiserke]}
+  - {name: Жетыген, province: Алматинская область, district: Илийский, kind: village, aliases: [Жетіген, Николаевка, Zhetygen]}
+  - {name: Шамалган, province: Алматинская область, district: Карасайский, kind: village, aliases: [Шамалған, Shamalgan]}
+  - {name: Иргели, province: Алматинская область, district: Карасайский, kind: village, aliases: [Іргелі, Irgeli]}
+  - {name: Узынагаш, province: Алматинская область, district: Жамбылский, kind: village, aliases: [Ұзынағаш, Uzynagash]}
+  - {name: Туздыбастау, province: Алматинская область, district: Талгарский, kind: village, aliases: [Тұздыбастау, Калинино, Tuzdybastau]}
+  - {name: Бесагаш, province: Алматинская область, district: Талгарский, kind: village, aliases: [Бесағаш, Besagash]}
+  - {name: Акмол, province: Акмолинская область, district: Целиноградский, kind: village, aliases: [Ақмол, Малиновка, Akmol]}
+  - {name: Талапкер, province: Акмолинская область, district: Целиноградский, kind: village, aliases: [Talapker]}
+
+# районы областей (неполно; полный список даёт OSM admin_level=6 и КАТО)
+oblast_districts:
+  Алматинская область:
+    - {name: Илийский, aliases: [Іле, Иле, Іле ауданы, Ili, Iliyskiy]}
+    - {name: Карасайский, aliases: [Қарасай, Карасай, Қарасай ауданы, Karasay]}
+    - {name: Талгарский, aliases: [Талғар, Талғар ауданы, Talgarskiy]}
+    - {name: Енбекшиказахский, aliases: [Еңбекшіқазақ, Енбекшиказах, Еңбекшіқазақ ауданы, Enbekshikazakh]}
+    - {name: Жамбылский, aliases: [Жамбыл ауданы, Zhambylskiy]}
+    - {name: Балхашский, aliases: [Балқаш ауданы, Balkhashskiy]}
+    - {name: Райымбекский, aliases: [Райымбек, Райымбек ауданы, Raiymbek]}
+    - {name: Кегенский, aliases: [Кеген, Кеген ауданы, Kegen]}
+    - {name: Уйгурский, aliases: [Ұйғыр, Уйгур, Ұйғыр ауданы, Uigur]}
+  Жетысуская область:
+    - {name: Аксуский, aliases: [Ақсу ауданы]}
+    - {name: Алакольский, aliases: [Алакөл, Алакөл ауданы, Alakol]}
+    - {name: Ескельдинский, aliases: [Ескелді, Ескелді ауданы]}
+    - {name: Каратальский, aliases: [Қаратал, Қаратал ауданы]}
+    - {name: Кербулакский, aliases: [Кербұлақ, Кербұлақ ауданы]}
+    - {name: Коксуский, aliases: [Көксу, Көксу ауданы]}
+    - {name: Панфиловский, aliases: [Панфилов, Панфилов ауданы]}
+    - {name: Саркандский, aliases: [Сарқан, Сарқан ауданы]}
+  Акмолинская область:
+    - {name: Целиноградский, aliases: [Целиноград ауданы, Tselinogradskiy]}
+    - {name: Аршалынский, aliases: [Аршалы, Аршалы ауданы]}
+    - {name: Бурабайский, aliases: [Бурабай, Бурабай ауданы, Burabay]}
+    - {name: Шортандинский, aliases: [Шортанды, Шортанды ауданы]}
+  Туркестанская область:
+    - {name: Сайрамский, aliases: [Сайрам, Сайрам ауданы, Sairam]}
+    - {name: Толебийский, aliases: [Төле би, Төлеби, Төле би ауданы, Tolebi]}
+    - {name: Тюлькубасский, aliases: [Түлкібас, Түлкібас ауданы, Tulkibas]}
+    - {name: Казыгуртский, aliases: [Қазығұрт, Қазығұрт ауданы, Kazygurt]}
+    - {name: Ордабасинский, aliases: [Ордабасы, Ордабасы ауданы, Ordabasy]}
+    - {name: Сарыагашский, aliases: [Сарыағаш ауданы]}
+    - {name: Мактааральский, aliases: [Мақтаарал, Мақтаарал ауданы, Maktaaral]}
+    - {name: Жетысайский, aliases: [Жетісай ауданы]}
+    - {name: Шардаринский, aliases: [Шардара ауданы]}
+    - {name: Отырарский, aliases: [Отырар, Отырар ауданы, Otyrar]}
+    - {name: Байдибекский, aliases: [Бәйдібек, Бәйдібек ауданы, Baidibek]}
+    - {name: Созакский, aliases: [Созақ, Созақ ауданы, Sozak]}
+    - {name: Келесский, aliases: [Келес, Келес ауданы, Keles]}
+    - {name: Сауранский, aliases: [Сауран, Сауран ауданы, Sauran]}
+
+# районы внутри областных центров
+city_districts:
+  Караганда:
+    - {name: Казыбек би, aliases: [район имени Казыбек би, им Казыбек би, Казыбекбийский, Қазыбек би]}
+    - {name: Алихана Бокейханова, aliases: [Әлихан Бөкейхан, Алихан Бокейхан, Октябрьский]}
+  Актобе:
+    - {name: Алматинский, aliases: [Алматы ауданы]}
+    - {name: Астанинский, aliases: [Астана ауданы]}
+
+# микрорайоны и жилые массивы (ядро; основное покрытие из OSM place=suburb/neighbourhood/quarter)
+living_areas:
+  Алматы:
+    Ауэзовский: [Аксай-1, Аксай-1А, Аксай-2, Аксай-3, Аксай-3А, Аксай-3Б, Аксай-4, Аксай-5, Мамыр-1, Мамыр-2,
+                 Мамыр-3, Мамыр-4, Мамыр-7, Жетысу-1, Жетысу-2, Жетысу-3, Жетысу-4, Таугуль, Таугуль-1,
+                 Таугуль-2, Таугуль-3, Сайран]
+    Бостандыкский: [Орбита-1, Орбита-2, Орбита-3, Орбита-4, Коктем-1, Коктем-2, Коктем-3, Казахфильм, Алмагуль,
+                    Баганашыл]
+    Медеуский: [Самал-1, Самал-2, Самал-3, Каменское плато]
+    Алатауский: [Шанырак-1, Шанырак-2, Шанырак-3, Шанырак-4, Шанырак-5, Шанырак-6, Айгерим-1, Айгерим-2]
+    Наурызбайский: [Калкаман-1, Калкаман-2, Калкаман-3, Шугыла]
+    Жетысуский: [Айнабулак-1, Айнабулак-2, Айнабулак-3, Айнабулак-4, Кулагер]

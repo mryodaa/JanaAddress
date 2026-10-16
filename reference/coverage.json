@@ -1,0 +1,313 @@
+{
+ "counts": {
+  "provinces": 20,
+  "districts": 203,
+  "cities": 6900,
+  "living_areas": 5067,
+  "streets": 57889,
+  "houses": 1184475,
+  "aliases": 93931
+ },
+ "by_source": {
+  "cities": {
+   "seed": 73,
+   "osm": 6827
+  },
+  "districts": {
+   "seed": 58,
+   "osm": 145
+  },
+  "living_areas": {
+   "seed": 53,
+   "osm": 5014
+  },
+  "streets": {
+   "osm": 57889
+  },
+  "houses": {
+   "osm": 1184475
+  }
+ },
+ "top_cities": [
+  {
+   "city": "Алматы",
+   "kind": "republican",
+   "streets": 3542,
+   "houses": 125861,
+   "houses_with_district": 125676
+  },
+  {
+   "city": "Шымкент",
+   "kind": "republican",
+   "streets": 2999,
+   "houses": 88274,
+   "houses_with_district": 88274
+  },
+  {
+   "city": "Тараз",
+   "kind": "city",
+   "streets": 2161,
+   "houses": 42401,
+   "houses_with_district": 41615
+  },
+  {
+   "city": "Астана",
+   "kind": "republican",
+   "streets": 1591,
+   "houses": 28871,
+   "houses_with_district": 28871
+  },
+  {
+   "city": "Атырау",
+   "kind": "city",
+   "streets": 1255,
+   "houses": 25997,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Семей",
+   "kind": "city",
+   "streets": 1197,
+   "houses": 41686,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Петропавловск",
+   "kind": "city",
+   "streets": 1052,
+   "houses": 29681,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Кызылорда",
+   "kind": "city",
+   "streets": 997,
+   "houses": 25026,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Павлодар",
+   "kind": "city",
+   "streets": 936,
+   "houses": 44499,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Актобе",
+   "kind": "city",
+   "streets": 898,
+   "houses": 24842,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Туркестан",
+   "kind": "city",
+   "streets": 889,
+   "houses": 39773,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Караганда",
+   "kind": "city",
+   "streets": 803,
+   "houses": 23757,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Усть-Каменогорск",
+   "kind": "city",
+   "streets": 781,
+   "houses": 22986,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Уральск",
+   "kind": "city",
+   "streets": 751,
+   "houses": 19716,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Талдыкорган",
+   "kind": "city",
+   "streets": 606,
+   "houses": 17492,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Кокшетау",
+   "kind": "city",
+   "streets": 491,
+   "houses": 13768,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Костанай",
+   "kind": "city",
+   "streets": 473,
+   "houses": 17069,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Кульсары",
+   "kind": "city",
+   "streets": 467,
+   "houses": 7398,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Аральск",
+   "kind": "city",
+   "streets": 393,
+   "houses": 5845,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Талгар",
+   "kind": "city",
+   "streets": 392,
+   "houses": 7932,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Сарыагаш",
+   "kind": "city",
+   "streets": 359,
+   "houses": 8631,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Экибастуз",
+   "kind": "city",
+   "streets": 346,
+   "houses": 8008,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Арысь",
+   "kind": "city",
+   "streets": 327,
+   "houses": 7271,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Шубарсу",
+   "kind": "village",
+   "streets": 307,
+   "houses": 6,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Каскелен",
+   "kind": "city",
+   "streets": 306,
+   "houses": 7666,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Айтеке би",
+   "kind": "town",
+   "streets": 297,
+   "houses": 7765,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Жезказган",
+   "kind": "city",
+   "streets": 274,
+   "houses": 3933,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Кентау",
+   "kind": "city",
+   "streets": 268,
+   "houses": 6537,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Шиели",
+   "kind": "town",
+   "streets": 265,
+   "houses": 5546,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Риддер",
+   "kind": "city",
+   "streets": 253,
+   "houses": 2647,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Жетысай",
+   "kind": "city",
+   "streets": 234,
+   "houses": 5922,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Рудный",
+   "kind": "city",
+   "streets": 234,
+   "houses": 5684,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Шу",
+   "kind": "city",
+   "streets": 234,
+   "houses": 3128,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Зачаганск",
+   "kind": "town",
+   "streets": 229,
+   "houses": 7359,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Конаев",
+   "kind": "city",
+   "streets": 222,
+   "houses": 5489,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Алатау",
+   "kind": "city",
+   "streets": 212,
+   "houses": 545,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Жанаозен",
+   "kind": "city",
+   "streets": 209,
+   "houses": 10831,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Темиртау",
+   "kind": "city",
+   "streets": 207,
+   "houses": 5162,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Щучинск",
+   "kind": "city",
+   "streets": 203,
+   "houses": 8387,
+   "houses_with_district": 0
+  },
+  {
+   "city": "Аксу",
+   "kind": "city",
+   "streets": 201,
+   "houses": 5181,
+   "houses_with_district": 0
+  }
+ ]
+}

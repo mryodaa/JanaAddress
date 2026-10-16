@@ -1,0 +1,21 @@
+services:
+  jana-address:
+    build: .
+    image: jana-address:latest
+    container_name: jana-address
+    ports:
+      - "8000:8000"
+    volumes:
+      - jana-edits:/app/var
+    environment:
+      JANA_UNCERTAIN_THRESHOLD: "0.6"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).status == 200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  jana-edits:

@@ -1,0 +1,21 @@
+# выданные организаторами данные в репозиторий не попадают
+data/
+!data/.gitkeep
+# окружение
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+var/
+out*.json
+*.tar
+# сборка справочника: сырьё большое и скачивается заново
+scripts/build_reference/cache/
+# фронт
+frontend/node_modules/
+frontend/.vite/
+*.egg-info/
+*.tsbuildinfo
+.CLAUDE.md
