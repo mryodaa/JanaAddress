@@ -35,7 +35,7 @@ _PROV_WORDS = re.compile(r"\s*(область|облысы|обл\.?)\s*", re.I)
 _DIST_WORDS = re.compile(r"\s*(район|ауданы|р-н)\s*", re.I)
 
 
-_POSTCODE = re.compile(r"\d{6}")
+_POSTCODE = re.compile(r"\b\d{6}\b")
 
 
 def toponym_ok(name: str | None) -> bool:

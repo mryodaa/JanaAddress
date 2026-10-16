@@ -63,10 +63,15 @@ def _collect(tokens: list[Token], i: int, step: int) -> list[Token]:
     return out if step > 0 else out[::-1]
 
 
+# сокращения, которые тоже закрывают казахскую половину: «Шымкент/Шымкент қ. Наурыз шағын ауданы»
+KZ_SHORT_END = frozenset({"қ", "обл", "ауд"})
+
+
 def _cut_right(toks: list[Token]) -> list[Token]:
     """Справа отбрасываем до первого казахского маркера включительно («Алматы қаласы Мкр Аксай»)."""
     for k, t in enumerate(toks):
-        if t.text.lower() in KZ_MARKERS:
+        low = t.text.lower()
+        if low in KZ_MARKERS or (k > 0 and low in KZ_SHORT_END):
             return toks[: k + 1]
     return toks
 

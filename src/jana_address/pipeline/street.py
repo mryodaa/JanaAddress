@@ -10,12 +10,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ..reference.normalize import fold
 from ..reference.store import Store, get_store
 from ..rules_loader import Rules, StreetType, get_rules
-from .base import ParseState, StepTrace
+from .base import ParseState, StepTrace, Token
 from .util import mark, marker_ok, match_phrase, segments, value_from
 
 # маркеры, которые в казахском стоят ПОСЛЕ названия («Абай көшесі», «Самал шағын ауданы»)
@@ -29,6 +30,8 @@ POSTFIX_FOLDS = frozenset(
         "дангыл",
         "данг",
         "шагын ауданы",
+        "шагын аудан",
+        "ыкшам аудан",
         "ыкшам ауданы",
         "ыкшамауданы",
         "шагынауданы",
@@ -49,6 +52,27 @@ POSTFIX_FOLDS = frozenset(
         "ш.а",
     }
 )
+
+
+_DASH_NUM = re.compile(r"\d{1,2}[^\W\d_]?")
+
+
+def _is_initial(toks: list[Token], i: int) -> bool:
+    """Заглавная буква с точкой перед словом: «Ш. Мыкитанулы», «К. Аманжолова»."""
+    t = toks[i]
+    return (
+        len(t.text) == 1
+        and t.text.isupper()
+        and i + 2 < len(toks)
+        and toks[i + 1].text == "."
+        and toks[i + 2].kind == "word"
+        and toks[i + 2].free
+    )
+
+
+def _house_like(t: Token) -> bool:
+    """После улицы без маркера: свободный номер или дом, уже взятый по маркеру («Чапаева д.65», «Жамбыла 3дом»)."""
+    return (t.kind == "num" and t.free) or t.used_by in ("house", "marker:house")
 
 
 @dataclass
@@ -83,7 +107,8 @@ class Street:
             or text in r.lm_prepositions
             or text in r.lm_objects
             or text in r.lm_brands
-            or text in r.building_part
+            # «к», «с» корпусом бывают только слитно с числом (шаг parts), а «С.Кожанов», «К. Аманжолова» это инициал
+            or (text in r.building_part and len(text) > 1)
         )
 
     def _collect(
@@ -102,11 +127,25 @@ class Street:
             if not t.free:
                 break
             if t.kind == "word":
-                if self.is_stop_word(t.text, noise=False) or words >= 4:
+                if direction > 0 and _is_initial(toks, seg[j]):
+                    out.append(seg[j])  # «ул. Ш. Мыкитанулы»: инициал, а не «ш.» (шоссе)
+                    j += direction
+                    continue
+                stop = self.is_stop_word(t.text, noise=False)
+                # латиница в названиях ЖК («ЖК EXPO Boulevard», «Luxury Park»): не тип улицы и не ориентир
+                if stop and area and t.text.isascii() and t.text not in self.rules.details:
+                    stop = False
+                if stop or words >= 4:
                     break
                 out.append(seg[j])
                 words += 1
             elif t.kind == "num":
+                if not area and direction > 0 and self._dash_number(state, out, seg[j]):
+                    out.append(seg[j])  # «Самал-3 40»
+                    break
+                if not area and direction > 0 and self._name_number(state, out, seg, j):
+                    out.append(seg[j])  # «переулок Мусорского 2 д. 51»
+                    break
                 if not area:
                     # «ул. 8 Марта»: число перед словом в начале имени
                     nxt = seg[j + direction] if 0 <= j + direction < len(seg) else None
@@ -139,6 +178,38 @@ class Street:
                 break
             j += direction
         return out if direction > 0 else out[::-1]
+
+    def _name_number(self, state: ParseState, name: list[int], seg: list[int], j: int) -> bool:
+        """Короткий номер после названия входит в него, если дом уже взят маркером сразу за номером
+        («Мусорского 2 д. 51», «Сыргак батыр 3, 11дом») или справочник города знает имя с номером, а без
+        номера нет. «Абая 12 кв 5» не трогаем: за номером маркер квартиры, дома по маркеру нет."""
+        toks = state.tokens
+        t = toks[seg[j]]
+        if not name or not t.free or not re.fullmatch(r"\d{1,2}", t.text):
+            return False
+        base = " ".join(toks[i].text for i in name)
+        cid = state.ref_ids.get("city")
+        if cid is not None and self.store.streets(f"{base} {t.text}", cid) and not self.store.streets(base, cid):
+            return True
+        k = seg[j] + 1
+        while k < len(toks) and (toks[k].kind == "sep" or toks[k].text == "."):
+            k += 1
+        return "house" in state.fields and k < len(toks) and toks[k].used_by in ("marker:house", "house")
+
+    def _dash_number(self, state: ParseState, name: list[int], num: int) -> bool:
+        """«Самал-3 40», «САУЛЕТ-11 д.61»: короткий номер слитно через дефис входит в название, если справочник
+        знает такое имя или дальше есть дом. Иначе («Абая-12 кв 5») это номер дома."""
+        toks = state.tokens
+        t = toks[num]
+        if not name or not t.free or not t.glued_left or name[-1] != num - 2 or not _DASH_NUM.fullmatch(t.text):
+            return False
+        dash = toks[num - 1]
+        if dash.text != "-" or not dash.glued_left:
+            return False
+        full = " ".join(toks[i].text for i in name) + "-" + t.text
+        if self.store.lookup(full, ("street", "living_area")):
+            return True
+        return "house" in state.fields or any(u.kind == "num" and u.free for u in toks[num + 1 :])
 
     def _area_number(self, state: ParseState, name: list[int], num: int, later_free_num: bool) -> bool:
         """Входит ли число после имени микрорайона в его название («Аксай 3а») или это дом."""
@@ -181,10 +252,10 @@ class Street:
                 before = self._collect(state, seg, k - 1, -1, area, later)
                 mfold = " ".join(fold(toks[i].text) for i in marker)
                 after_words = any(toks[i].kind == "word" for i in after)
-                before_words = any(toks[i].kind == "word" for i in before)
                 if mfold in POSTFIX_FOLDS and before:
                     name = before
-                elif after and (after_words or not before_words):
+                # «66квартал 12»: с обеих сторон только числа -> номер перед маркером это имя, после это дом
+                elif after and (after_words or not before):
                     name = after
                 elif before:
                     name = before
@@ -257,19 +328,44 @@ class Street:
         state.trace.append(tr)
         return state
 
+    def _number_name(self, state: ParseState, seg: list[int], k: int) -> bool:
+        """Число в начале названия улицы без маркера: «40 лет Победы», «9 Мая», «30 лет Казахстана». Только если за
+        числом слово из number_name_words (rules/markers.yaml) или справочник города знает «число + слова»."""
+        toks = state.tokens
+        t = toks[seg[k]]
+        if t.kind != "num" or not t.free or not t.text.isdigit() or k + 1 >= len(seg):
+            return False
+        nxt = toks[seg[k + 1]]
+        if nxt.kind != "word" or not nxt.free or nxt.glued_left:
+            return False
+        if fold(nxt.text) in self.rules.number_name_words:
+            return True
+        cid = state.ref_ids.get("city")
+        if cid is None:
+            return False
+        words = [t.text]
+        for x in seg[k + 1 : k + 4]:
+            if toks[x].kind != "word" or not toks[x].free:
+                break
+            words.append(toks[x].text)
+            if self.store.streets(" ".join(words), cid):
+                return True
+        return False
+
     def _guess(self, state: ParseState, segs: list[list[int]]) -> list[int] | None:
-        """Улица без маркера: свободная группа слов, за которой идёт свободный номер."""
+        """Улица без маркера: свободная группа слов, за которой идёт свободный номер или дом по маркеру."""
         toks = state.tokens
         second: list[int] | None = None
         for si, seg in enumerate(segs):
             k = 0
             while k < len(seg):
                 t = toks[seg[k]]
-                if not (t.free and t.kind == "word") or self.is_stop_word(t.text):
+                lead_num = self._number_name(state, seg, k)
+                if not lead_num and (not (t.free and t.kind == "word") or self.is_stop_word(t.text)):
                     k += 1
                     continue
-                run: list[int] = []
-                j = k
+                run: list[int] = [seg[k]] if lead_num else []
+                j = k + 1 if lead_num else k
                 while j < len(seg):
                     u = toks[seg[j]]
                     if u.kind == "punct" and u.text in ".-'" and u.free:
@@ -279,13 +375,22 @@ class Street:
                         run.append(seg[j])
                         j += 1
                         continue
+                    if u.kind == "num" and self._dash_number(state, run, seg[j]):
+                        run.append(seg[j])
+                        j += 1
                     break
                 nxt = toks[seg[j]] if j < len(seg) else None
-                if run and nxt is not None and nxt.kind == "num" and nxt.free:
+                if run and nxt is not None and _house_like(nxt):
                     return run
-                if run and nxt is None and k == 0 and second is None and si + 1 < len(segs):
-                    first_next = toks[segs[si + 1][0]]
-                    if first_next.kind == "num" and first_next.free:
-                        second = run
+                # «Тараз қаласы Добролюбова, 22»: до улицы в сегменте только уже разобранное (город)
+                if (
+                    run
+                    and nxt is None
+                    and all(not toks[x].free or toks[x].kind == "punct" for x in seg[:k])
+                    and second is None
+                    and si + 1 < len(segs)
+                    and _house_like(toks[segs[si + 1][0]])
+                ):
+                    second = run
                 k = max(j, k + 1)
         return second

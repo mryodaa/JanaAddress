@@ -1,8 +1,8 @@
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { FIELD_NAMES, type FieldName, type RecordItem } from "../api/client";
-import { FIELD_LABELS } from "../lib/fields";
+import { useI18n } from "../i18n";
 import { ConfidenceBadge, Highlighted, SourceTag } from "./ui";
 
 const WIDTH: Record<string, number> = {
@@ -27,12 +27,16 @@ export function RecordsTable({
   selected,
   onSelect,
   threshold,
+  active,
 }: {
   items: RecordItem[];
   selected: number | null;
   onSelect: (idx: number) => void;
   threshold: number;
+  active: boolean;
 }) {
+  const { t, fieldLabels } = useI18n();
+
   const columns = useMemo<ColumnDef<RecordItem>[]>(
     () => [
       {
@@ -47,14 +51,14 @@ export function RecordsTable({
       },
       {
         id: "raw",
-        header: "Исходная строка",
+        header: t("originalString"),
         cell: ({ row }) => (
           <Highlighted raw={String(row.original.record.raw_address ?? "")} fields={row.original.fields} />
         ),
       },
       ...FIELD_NAMES.map<ColumnDef<RecordItem>>((f: FieldName) => ({
         id: f,
-        header: FIELD_LABELS[f],
+        header: fieldLabels[f],
         cell: ({ row }) => {
           const v = row.original.record[f];
           return v == null ? (
@@ -69,11 +73,11 @@ export function RecordsTable({
       })),
       {
         id: "confidence",
-        header: "Увер.",
+        header: t("confidenceShort"),
         cell: ({ row }) => <ConfidenceBadge value={row.original.record.confidence} threshold={threshold} />,
       },
     ],
-    [threshold],
+    [threshold, t, fieldLabels],
   );
 
   const table = useReactTable({ data: items, columns, getCoreRowModel: getCoreRowModel() });
@@ -95,8 +99,21 @@ export function RecordsTable({
     if (i >= 0) virt.scrollToIndex(i, { align: "auto" });
   }, [selected, items, virt]);
 
+  // скрытая вкладка (display: none) может потерять прокрутку: запоминаем её и возвращаем при показе
+  const offset = useRef(0);
+  useLayoutEffect(() => {
+    const el = parent.current;
+    if (active && el && el.scrollTop !== offset.current) el.scrollTop = offset.current;
+  }, [active]);
+
   return (
-    <div ref={parent} className="h-full overflow-auto rounded-xl border border-slate-200 bg-white">
+    <div
+      ref={parent}
+      onScroll={(e) => {
+        if (active) offset.current = e.currentTarget.scrollTop;
+      }}
+      className="h-full overflow-auto rounded-xl border border-slate-200 bg-white"
+    >
       <div style={{ width: total, minWidth: "100%" }}>
         <div className="sticky top-0 z-10 flex border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
           {table.getFlatHeaders().map((h) => (
@@ -136,7 +153,9 @@ export function RecordsTable({
             );
           })}
         </div>
-        {rows.length === 0 && <div className="p-8 text-center text-sm text-slate-500">Ничего не найдено</div>}
+        {rows.length === 0 && (
+          <div className="p-8 text-center text-sm text-slate-500">{t("nothingFound")}</div>
+        )}
       </div>
     </div>
   );

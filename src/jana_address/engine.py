@@ -24,7 +24,18 @@ def get_pipeline() -> Pipeline:
                 from .reference import store
 
                 _info["reference"] = store.get_store().stats() if store.is_available() else None
+                from .pipeline import tagger
+
+                _info["tagger"] = tagger.info()
     return _pipeline
+
+
+def reset() -> None:
+    """Пересобрать пайплайн при следующем вызове (CLI/тесты меняют JANA_TAGGER)."""
+    global _pipeline
+    with _lock:
+        _pipeline = None
+        _info.clear()
 
 
 def is_ready() -> bool:

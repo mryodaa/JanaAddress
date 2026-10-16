@@ -1,7 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { FIELD_NAMES, api } from "../api/client";
-import { FIELD_COLORS, FIELD_LABELS } from "../lib/fields";
+import { useI18n } from "../i18n";
+import { FIELD_COLORS } from "../lib/fields";
 import { Trace } from "./Trace";
 import { Button, Card, ConfidenceBadge, Highlighted, Legend, SourceTag } from "./ui";
 
@@ -14,6 +15,7 @@ const EXAMPLES = [
 ];
 
 export function CheckOne({ threshold }: { threshold: number }) {
+  const { t, fieldLabels } = useI18n();
   const [text, setText] = useState(EXAMPLES[0] ?? "");
   const m = useMutation({ mutationFn: api.parseOne });
   const r = m.data;
@@ -31,11 +33,11 @@ export function CheckOne({ threshold }: { threshold: number }) {
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Введите адрес одной строкой"
+            placeholder={t("inputPlaceholder")}
             className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
           />
           <Button variant="primary" type="submit" disabled={!text.trim() || m.isPending}>
-            Разобрать
+            {t("parseButton")}
           </Button>
         </form>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -71,7 +73,7 @@ export function CheckOne({ threshold }: { threshold: number }) {
                 <div key={f} className="flex items-baseline gap-2 border-b border-slate-100 pb-1.5">
                   <dt className="flex w-36 shrink-0 items-center gap-1.5 text-xs text-slate-500">
                     <span className={`h-2 w-2 rounded-sm ${FIELD_COLORS[f].dot}`} />
-                    {FIELD_LABELS[f]}
+                    {fieldLabels[f]}
                   </dt>
                   <dd className="min-w-0 text-sm font-medium break-words">
                     {r[f] ?? <span className="font-normal text-slate-300">null</span>}
@@ -82,11 +84,11 @@ export function CheckOne({ threshold }: { threshold: number }) {
             </dl>
             {(r.unparsed ?? []).length > 0 && (
               <div className="mt-3 text-xs text-slate-500">
-                Не разобрано: {(r.unparsed ?? []).map((u) => `«${u}»`).join(", ")}
+                {t("unparsed")} {(r.unparsed ?? []).map((u) => `«${u}»`).join(", ")}
               </div>
             )}
           </Card>
-          <Card title="Шаги пайплайна">
+          <Card title={t("pipelineSteps")}>
             <Trace trace={r.trace ?? []} />
           </Card>
         </div>

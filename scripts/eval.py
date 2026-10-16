@@ -1,6 +1,10 @@
 """Метрика жюри (ТЗ, раздел 4).
 
     python scripts/eval.py predictions.json gold.json [--strict-fp] [--top 30] [--json report.json]
+                           [--baseline old_predictions.json] [--run rules|tagger|hybrid]
+
+--run: сначала разобрать raw_address эталона в этом режиме и записать в predictions.json (rules: только правила,
+tagger: поля только из модели, hybrid: правила + теггер + арбитр). Сравнение режимов разом: compare_modes.py.
 
 Сравнение по каждому полю отдельно: нижний регистр, удалить пунктуацию, схлопнуть пробелы, посимвольно.
   адрес   60%: province, city, street_name, house
@@ -35,6 +39,19 @@ GROUPS: dict[str, tuple[float, tuple[str, ...]]] = {
     "reference": (0.15, ("district", "living_area")),
 }
 EXTRA_FIELDS = ("street_type", "landmark")  # в метрику не входят, печатаем для себя
+# слабые места правил из docs/STATE.md: печатаются отдельным блоком
+WEAK_TAGS = (
+    "settlement",
+    "city_kind:village",
+    "house_letter",
+    "no_commas",
+    "district_written",
+    "area_with_street",
+    "case_upper",
+    "case_lower",
+)
+# режим отчёта -> JANA_TAGGER
+MODES = {"rules": "off", "tagger": "only", "hybrid": "on", "shadow": "shadow"}
 _ws = re.compile(r"\s+")
 
 
@@ -81,10 +98,12 @@ def align(pred: list[dict[str, Any]], gold: list[dict[str, Any]]) -> list[tuple[
 def evaluate(pred: list[dict[str, Any]], gold: list[dict[str, Any]], strict_fp: bool = False) -> dict[str, Any]:
     stats: dict[str, FieldStat] = defaultdict(FieldStat)
     per_record: list[tuple[float, bool]] = []
+    records: list[dict[str, Any]] = []  # по записи: какие поля метрики неверны (для --baseline и тегов)
     for p, g in align(pred, gold):
         raw = g.get("raw_address")
         from_ref = set(g.get("_from_reference") or [])
         rec_ok, rec_counted = True, 0
+        wrong: list[str] = []
         for gname, (_, fields) in GROUPS.items():
             for f in fields:
                 gv, pv = g.get(f), p.get(f)
@@ -95,6 +114,7 @@ def evaluate(pred: list[dict[str, Any]], gold: list[dict[str, Any]], strict_fp: 
                         if strict_fp:
                             st.total += 1
                             st.errors.append({"field": f, "gold": gv, "pred": pv, "raw": raw})
+                            wrong.append(f)
                             rec_ok = False
                             rec_counted += 1
                             continue
@@ -109,7 +129,11 @@ def evaluate(pred: list[dict[str, Any]], gold: list[dict[str, Any]], strict_fp: 
                     st.correct += 1
                 else:
                     rec_ok = False
+                    wrong.append(f)
                     st.errors.append({"field": f, "gold": gv, "pred": pv, "raw": raw})
+        records.append(
+            {"id": g.get("id"), "raw": raw, "counted": rec_counted > 0, "wrong": wrong, "tags": g.get("_tags") or []}
+        )
         for f in EXTRA_FIELDS:
             gv, pv = g.get(f), p.get(f)
             if gv is None:
@@ -152,7 +176,56 @@ def evaluate(pred: list[dict[str, Any]], gold: list[dict[str, Any]], strict_fp: 
         "calibration": calibration(per_record),
         "errors": [e for s in stats.values() for e in s.errors],
         "records": len(gold),
+        "per_record": records,
+        "tags": by_tag(records),
     }
+
+
+def by_tag(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Доля записей, верных целиком по полям метрики, в разрезе тегов генератора (gen_dev.py)."""
+    out: dict[str, dict[str, Any]] = {}
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in records:
+        if r["counted"]:
+            for t in r["tags"]:
+                groups[t].append(r)
+    for t, rs in groups.items():
+        fields = Counter(f for r in rs for f in r["wrong"])
+        out[t] = {"n": len(rs), "ok": sum(not r["wrong"] for r in rs) / len(rs), "wrong_fields": dict(fields)}
+    return out
+
+
+def compare(base: dict[str, Any], new: dict[str, Any], top: int) -> None:
+    """Что изменилось относительно прошлого прогона на том же эталоне."""
+    pct = lambda x: "  n/a " if x != x else f"{x * 100:5.1f}%"  # noqa: E731
+    delta = lambda a, b: "" if a != a or b != b else f"{(b - a) * 100:+.1f}"  # noqa: E731
+    a, b = base["score"], new["score"]
+    print(f"\nСравнение с базой: ИТОГ {pct(a)} -> {pct(b)} ({delta(a, b)})")
+    for f in (*(f for _, fs in GROUPS.values() for f in fs), *EXTRA_FIELDS):
+        a, b = base["fields"].get(f, {}).get("acc", float("nan")), new["fields"].get(f, {}).get("acc", float("nan"))
+        if a == a and b == b and abs(a - b) >= 0.0005:
+            print(f"  {f:<12} {pct(a)} -> {pct(b)} ({delta(a, b)})")
+    old = {str(r["id"]): r for r in base["per_record"]}
+    fixed, broken = [], []
+    for r in new["per_record"]:
+        o = old.get(str(r["id"]))
+        if o is None:
+            continue
+        if set(r["wrong"]) - set(o["wrong"]):
+            broken.append((r, sorted(set(r["wrong"]) - set(o["wrong"]))))
+        elif set(o["wrong"]) - set(r["wrong"]):
+            fixed.append((r, sorted(set(o["wrong"]) - set(r["wrong"]))))
+    print(f"  исправлено записей: {len(fixed)}, сломано: {len(broken)}")
+    for r, fs in broken[:top]:
+        print(f"  СЛОМАНО {','.join(fs)}: {r['raw']!r}")
+
+
+def predict(gold: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    """Разбор raw_address эталона пайплайном в режиме mode (rules | tagger | hybrid | shadow)."""
+    from jana_address.pipeline.runner import Pipeline, parse_records
+
+    recs = [{"id": g.get("id"), "raw_address": g.get("raw_address")} for g in gold]
+    return parse_records(Pipeline(tagger_mode=MODES[mode]), recs)
 
 
 def calibration(items: list[tuple[float, bool]], bins: int = 10) -> dict[str, Any]:
@@ -186,6 +259,11 @@ def print_report(rep: dict[str, Any], top: int) -> None:
         s = rep["fields"].get(f)
         if s:
             print(f"  {f:<12} {pct(s['acc'])}  {s['correct']}/{s['total']}  (вне метрики)")
+    if rep["tags"]:
+        print("\nПо тегам (запись верна целиком; сначала худшие):")
+        for t, v in sorted(rep["tags"].items(), key=lambda kv: kv[1]["ok"]):
+            wf = ", ".join(f"{k}:{n}" for k, n in sorted(v["wrong_fields"].items(), key=lambda kv: -kv[1]))
+            print(f"  {t:<28} {pct(v['ok'])}  n={v['n']:<5} {wf}")
     cal = rep["calibration"]
     print(f"\nКалибровка confidence (запись верна целиком), ECE={cal['ece']:.3f}")
     for r in cal["bins"]:
@@ -206,10 +284,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--strict-fp", action="store_true")
     ap.add_argument("--top", type=int, default=30)
     ap.add_argument("--json", type=Path, help="сохранить отчёт в JSON")
+    ap.add_argument("--baseline", type=Path, help="предсказания прошлого прогона: что исправлено и что сломано")
+    ap.add_argument("--run", choices=list(MODES), help="разобрать эталон в этом режиме и записать в pred")
     args = ap.parse_args(argv)
-    rep = evaluate(load(args.pred), load(args.gold), args.strict_fp)
+    gold = load(args.gold)
+    if args.run:
+        args.pred.write_text(json.dumps(predict(gold, args.run), ensure_ascii=False, indent=1), encoding="utf-8")
+    rep = evaluate(load(args.pred), gold, args.strict_fp)
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     print_report(rep, args.top)
+    if args.baseline:
+        compare(evaluate(load(args.baseline), gold, args.strict_fp), rep, args.top)
     if args.json:
         args.json.write_text(json.dumps(rep, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     return 0

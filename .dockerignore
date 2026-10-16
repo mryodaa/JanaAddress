@@ -1,8 +1,9 @@
-# в образ идут только requirements.txt, vendor/wheels, reference/reference.sqlite, src/
+# в образ идут только requirements.txt, vendor/wheels, reference/reference.sqlite, models/, src/
 *
 !requirements.txt
 !vendor/wheels/
 !reference/reference.sqlite
+!models/
 !src/
 src/**/__pycache__
 data/

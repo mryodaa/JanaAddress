@@ -1,4 +1,5 @@
 import type { FieldExplain, FieldName } from "../api/client";
+import type { Language } from "../i18n/types";
 
 export const FIELD_LABELS: Record<FieldName, string> = {
   province: "Область",
@@ -29,11 +30,16 @@ export const FIELD_COLORS: Record<FieldName, { mark: string; dot: string }> = {
   landmark: { mark: "bg-teal-100 text-teal-900 ring-teal-300", dot: "bg-teal-500" },
 };
 
-export function sourceLabel(source: string | null | undefined): string | null {
+export function sourceLabel(source: string | null | undefined, lang: Language = "ru"): string | null {
   if (!source || source === "string") return null;
-  if (source === "manual") return "правка";
+  if (source === "manual") {
+    if (lang === "kk") return "өңдеу";
+    if (lang === "en") return "edit";
+    return "правка";
+  }
   const [, s] = source.split(":");
-  return s ? `справочник · ${s.toUpperCase()}` : "справочник";
+  const prefix = lang === "kk" ? "анықтамалық" : lang === "en" ? "reference" : "справочник";
+  return s ? `${prefix} · ${s.toUpperCase()}` : prefix;
 }
 
 export interface Piece {

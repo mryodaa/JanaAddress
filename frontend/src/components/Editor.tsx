@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { FIELD_NAMES, type FieldName, type RecordItem, api } from "../api/client";
-import { FIELD_COLORS, FIELD_LABELS } from "../lib/fields";
+import { useI18n } from "../i18n";
+import { FIELD_COLORS } from "../lib/fields";
 import { Trace } from "./Trace";
 import { Button, ConfidenceBadge, Highlighted, Kbd, SourceTag } from "./ui";
 
@@ -21,6 +22,7 @@ export function Editor({
   onNext,
   onClose,
   saving,
+  active,
 }: {
   sid: string;
   item: RecordItem;
@@ -31,7 +33,9 @@ export function Editor({
   onNext: () => void;
   onClose: () => void;
   saving: boolean;
+  active: boolean;
 }) {
+  const { t, fieldLabels } = useI18n();
   const [draft, setDraft] = useState<Draft>(() => toDraft(item));
   const [showTrace, setShowTrace] = useState(false);
   const first = useRef<HTMLInputElement>(null);
@@ -51,8 +55,9 @@ export function Editor({
     onSave(Object.fromEntries(changed.map((f) => [f, draft[f].trim() || null])));
   }
 
-  // Ctrl+Enter сохранить и дальше, Esc закрыть, Alt+↑/↓ соседние записи
+  // Ctrl+Enter сохранить и дальше, Esc закрыть, Alt+↑/↓ соседние записи; на скрытой вкладке не сохранять молча
   useEffect(() => {
+    if (!active) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -74,17 +79,18 @@ export function Editor({
     <aside className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
       <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
         <div className="text-sm font-semibold">
-          Запись {item.idx + 1} <span className="font-normal text-slate-400">· {position}</span>
+          {t("recordTitle", { idx: item.idx + 1 })}{" "}
+          <span className="font-normal text-slate-400">· {position}</span>
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge value={item.record.confidence} threshold={threshold} />
-          <Button variant="ghost" onClick={onPrev} title="Предыдущая (K или Alt+↑)" aria-label="предыдущая">
+          <Button variant="ghost" onClick={onPrev} title={t("prevTooltip")} aria-label={t("prevTooltip")}>
             ↑
           </Button>
-          <Button variant="ghost" onClick={onNext} title="Следующая (J или Alt+↓)" aria-label="следующая">
+          <Button variant="ghost" onClick={onNext} title={t("nextTooltip")} aria-label={t("nextTooltip")}>
             ↓
           </Button>
-          <Button variant="ghost" onClick={onClose} title="Закрыть (Esc)" aria-label="закрыть">
+          <Button variant="ghost" onClick={onClose} title={t("closeTooltip")} aria-label={t("closeTooltip")}>
             ✕
           </Button>
         </div>
@@ -105,7 +111,7 @@ export function Editor({
             <label key={f} className="grid grid-cols-[130px_minmax(0,1fr)] items-center gap-2">
               <span className="flex items-center gap-1.5 text-xs text-slate-600">
                 <span className={`h-2 w-2 rounded-sm ${FIELD_COLORS[f].dot}`} />
-                {FIELD_LABELS[f]}
+                {fieldLabels[f]}
                 <SourceTag source={item.fields[f]?.source} />
               </span>
               <input
@@ -121,17 +127,19 @@ export function Editor({
           ))}
           {item.unparsed.length > 0 && (
             <div className="text-xs text-slate-500">
-              Не разобрано: {item.unparsed.map((u) => `«${u}»`).join(", ")}
+              {t("unparsed")} {item.unparsed.map((u) => `«${u}»`).join(", ")}
             </div>
           )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button variant="primary" type="submit" disabled={saving}>
-              {changed.length ? "Сохранить и дальше" : "Подтвердить и дальше"}
+              {changed.length ? t("saveAndNext") : t("confirmAndNext")}
             </Button>
             <span className="text-xs text-slate-500">
               <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
             </span>
-            {item.reviewed && <span className="text-xs font-medium text-brand-700">✓ проверено</span>}
+            {item.reviewed && (
+              <span className="text-xs font-medium text-brand-700">{t("reviewedBadge")}</span>
+            )}
           </div>
         </form>
         <button
@@ -139,7 +147,7 @@ export function Editor({
           onClick={() => setShowTrace((v) => !v)}
           className="mt-4 text-xs font-medium text-brand-700 hover:underline"
         >
-          {showTrace ? "Скрыть" : "Показать"} шаги разбора
+          {showTrace ? t("hideTrace") : t("showTrace")}
         </button>
         {showTrace && full.data?.trace && (
           <div className="mt-2">

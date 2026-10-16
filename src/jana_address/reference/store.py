@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from collections import defaultdict
@@ -20,6 +21,9 @@ from rapidfuzz import fuzz, process
 
 from .. import config
 from .normalize import fold, keys
+
+# номер дома без корпуса/строения: «5 корп 2» -> «5», «11к2» -> «11», «30/1 стр. 2» -> «30/1»
+_HOUSE_BASE = re.compile(r"^\s*(\d+(?:[ -]?[^\W\d_](?![^\W\d_]|\d))?(?:/\d+(?:[ -]?[^\W\d_](?![^\W\d_]|\d))?)?)")
 
 
 @dataclass(frozen=True)
@@ -120,12 +124,12 @@ class Store:
     def lookup(self, text: str, etypes: tuple[str, ...]) -> list[Entity]:
         """Точное + нормализованное совпадение по алиасам (fold, транслит)."""
         out: list[Entity] = []
+        seen: set[tuple[str, int]] = set()  # у частых имён («Абая») тысячи улиц: проверка по списку была бы O(n²)
         for k in keys(text):
             for etype, eid in self.alias.get(k, ()):
-                if etype in etypes:
-                    e = self.entities[(etype, eid)]
-                    if e not in out:
-                        out.append(e)
+                if etype in etypes and (etype, eid) not in seen:
+                    seen.add((etype, eid))
+                    out.append(self.entities[(etype, eid)])
         return out
 
     def fuzzy(
@@ -174,17 +178,21 @@ class Store:
         return [self.entities[("street", i)] for i in cand[m[0]]], float(m[1])
 
     def house(self, street_id: int, number: str) -> tuple[int | None, int | None] | None:
-        """(district_id, living_area_id) дома или None, если дома нет в справочнике."""
-        key = fold(number).replace(" ", "")
-        row = (
-            self._con()
-            .execute(
+        """(district_id, living_area_id) дома или None, если дома нет в справочнике. «5 корп 2», «11к2», «30/1 стр. 2»:
+        если с корпусом не нашёлся, ищем номер без корпуса (участок и район у них общие)."""
+        keys_ = [fold(number).replace(" ", "")]
+        base = _HOUSE_BASE.match(number)
+        if base and fold(base.group(1)).replace(" ", "") != keys_[0]:
+            keys_.append(fold(base.group(1)).replace(" ", ""))
+        con = self._con()
+        for key in keys_:
+            row = con.execute(
                 "SELECT district_id, living_area_id FROM houses WHERE street_id = ? AND key = ? LIMIT 1",
                 (street_id, key),
-            )
-            .fetchone()
-        )
-        return (row[0], row[1]) if row else None
+            ).fetchone()
+            if row:
+                return (row[0], row[1])
+        return None
 
 
 _store: Store | None = None

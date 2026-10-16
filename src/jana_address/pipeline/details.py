@@ -62,6 +62,13 @@ class Details:
                 if not (followed_by_dot(state, i) or (nxt is not None and nxt.kind == "num")):
                     i += 1
                     continue
+                if word in self.rules.needs_number:
+                    k = i + 1
+                    while k < len(toks) and toks[k].text == ".":
+                        k += 1
+                    if not (k < len(toks) and toks[k].kind == "num" and toks[k].free):
+                        i += 1
+                        continue
             out.append(Marker(fname, i, last))
             i = last + 1
         return out

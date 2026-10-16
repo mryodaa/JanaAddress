@@ -19,3 +19,10 @@ frontend/.vite/
 *.egg-info/
 *.tsbuildinfo
 .CLAUDE.md
+docs/
+requrements-train.txt
+
+# обучение теггера: окружение, чекпойнты и логи (артефакт для образа лежит в models/)
+.venv-train/
+training/runs/
+training_*.log

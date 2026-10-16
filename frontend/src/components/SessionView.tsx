@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { type FieldName, type RecordItem, api } from "../api/client";
+import { useI18n } from "../i18n";
 import { Editor } from "./Editor";
 import { RecordsTable } from "./RecordsTable";
 import { Summary } from "./Summary";
@@ -18,8 +19,10 @@ function useDebounced<T>(value: T, ms: number): T {
 export function SessionView({
   sid,
   threshold,
+  active,
   onBack,
-}: { sid: string; threshold: number; onBack: () => void }) {
+}: { sid: string; threshold: number; active: boolean; onBack: () => void }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [uncertain, setUncertain] = useState(false);
   const [search, setSearch] = useState("");
@@ -60,11 +63,13 @@ export function SessionView({
     },
   });
 
-  // J/K или ↓/↑ по списку (когда фокус не в поле ввода)
+  // J/K или ↓/↑ по списку (когда фокус не в поле ввода); на скрытой вкладке клавиши не наши
   useEffect(() => {
+    if (!active) return;
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tKey = e.target as HTMLElement;
+      if (tKey.tagName === "INPUT" || tKey.tagName === "TEXTAREA" || e.altKey || e.ctrlKey || e.metaKey)
+        return;
       if (e.key === "j" || e.key === "о" || e.key === "ArrowDown") {
         e.preventDefault();
         go(1);
@@ -85,11 +90,11 @@ export function SessionView({
   if (session.isError) {
     return (
       <div className="text-sm text-rose-700">
-        Сессия не найдена. <Button onClick={onBack}>К загрузке</Button>
+        {t("sessionNotFound")} <Button onClick={onBack}>{t("backToUpload")}</Button>
       </div>
     );
   }
-  if (!session.data) return <div className="text-sm text-slate-500">Загрузка…</div>;
+  if (!session.data) return <div className="text-sm text-slate-500">{t("loading")}</div>;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -105,7 +110,7 @@ export function SessionView({
           id="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск по строке и полям  ( / )"
+          placeholder={t("searchPlaceholder")}
           className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 sm:w-72"
         />
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
@@ -115,20 +120,22 @@ export function SessionView({
             onChange={(e) => setUncertain(e.target.checked)}
             className="accent-brand-600"
           />
-          только неуверенные
+          {t("onlyUncertain")}
         </label>
-        <span className="text-xs text-slate-500">{records.data ? `${records.data.total} в списке` : ""}</span>
+        <span className="text-xs text-slate-500">
+          {records.data ? t("inList", { total: records.data.total }) : ""}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden text-xs text-slate-500 lg:inline">
-            <Kbd>J</Kbd>/<Kbd>K</Kbd> навигация · <Kbd>U</Kbd> неуверенные · <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>{" "}
-            сохранить
+            <Kbd>J</Kbd>/<Kbd>K</Kbd> {t("shortcutsNav")} · <Kbd>U</Kbd> {t("shortcutsUncertain")} ·{" "}
+            <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd> {t("shortcutsSave")}
           </span>
           <a href={api.exportUrl(sid)} download>
             <Button variant="primary" disabled={!done}>
-              Экспорт JSON
+              {t("exportJson")}
             </Button>
           </a>
-          <Button onClick={onBack}>Новый файл</Button>
+          <Button onClick={onBack}>{t("newFile")}</Button>
         </div>
       </div>
       <Legend />
@@ -137,10 +144,16 @@ export function SessionView({
       >
         <div className="min-h-[420px] min-w-0">
           {done ? (
-            <RecordsTable items={items} selected={selected} onSelect={setSelected} threshold={threshold} />
+            <RecordsTable
+              items={items}
+              selected={selected}
+              onSelect={setSelected}
+              threshold={threshold}
+              active={active}
+            />
           ) : (
             <div className="grid h-full place-items-center rounded-xl border border-slate-200 bg-white text-sm text-slate-500">
-              Идёт разбор…
+              {t("parsingInProgress")}
             </div>
           )}
         </div>
@@ -150,12 +163,13 @@ export function SessionView({
               sid={sid}
               item={current}
               threshold={threshold}
-              position={`${pos + 1} из ${items.length}`}
+              position={t("positionOf", { pos: pos + 1, total: items.length })}
               onSave={(f) => save.mutate(f)}
               onPrev={() => go(-1)}
               onNext={() => go(1)}
               onClose={() => setSelected(null)}
               saving={save.isPending}
+              active={active}
             />
           </div>
         )}

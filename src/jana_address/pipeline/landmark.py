@@ -10,7 +10,7 @@ from __future__ import annotations
 from ..reference.normalize import fold
 from ..rules_loader import Rules, get_rules
 from .base import ParseState, StepTrace
-from .util import mark, match_phrase, segments, value_from
+from .util import mark, match_phrase, segments, tidy_value, value_from
 
 
 class Landmark:
@@ -68,15 +68,22 @@ class Landmark:
                     continue
                 found.append(words)
                 k = j
-        if found:
-            parts = [value_from(state, [toks[i] for i in w]) for w in found]
-            parts_ok = [p for p in parts if p]
-            if parts_ok:
-                value = ", ".join(p[0] for p in parts_ok)
-                span = (parts_ok[0][1][0], parts_ok[-1][1][1])
-                state.set_field("landmark", value, span=span)
+        parts = [(w, v) for w in found if (v := value_from(state, [toks[i] for i in w]))]
+        if parts:
+            # несколько кусков склеиваются только если между ними в оригинале одни разделители
+            # («магазин Береке, напротив школы»): значение всегда один спан исходной строки
+            used, (s, e) = [parts[0][0]], parts[0][1][1]
+            for w, (_, (ps, pe)) in parts[1:]:
+                if state.raw[e:ps].strip(" ,;\t") or ps < e:
+                    tr.notes.append("остальные ориентиры не рядом: берём первый")
+                    break
+                used.append(w)
+                e = pe
+            value = tidy_value(state.raw[s:e])
+            if value:
+                state.set_field("landmark", value, span=(s, e))
                 tr.notes.append(f"landmark {value!r}")
-            for w in found:
-                mark(state, w, "landmark")
+                for w in used:
+                    mark(state, w, "landmark")
         state.trace.append(tr)
         return state

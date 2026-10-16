@@ -1,0 +1,13 @@
+# обучение теггера (training/): ставится в отдельное окружение .venv-train, в рантайм-образ не попадает
+#   python -m venv .venv-train
+#   .venv-train/Scripts/python -m pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130
+#   .venv-train/Scripts/python -m pip install -r requirements-train.txt
+# (CPU-сборка torch тоже подходит: обучение по умолчанию идёт на CPU, см. training/train.py)
+torch==2.14.1
+onnx==1.23.2
+onnxscript==0.7.2
+onnxruntime==1.31.0
+scikit-learn==1.9.1
+numpy==2.5.4
+pyyaml==6.0.3
+rapidfuzz==3.14.6

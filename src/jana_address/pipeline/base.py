@@ -8,10 +8,14 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..models import PARSED_FIELDS
+
+if TYPE_CHECKING:
+    from ..tagger.runtime import Prediction
 
 SOURCE_STRING = "string"
 
@@ -50,6 +54,8 @@ class StepTrace:
 
 @dataclass
 class ParseState:
+    # исходная строка; меняется только шагом layout на перекодированную из английской раскладки той же длины
+    # (Q19). id и raw_address в ответе берутся из записи, а не отсюда
     raw: str
     text: str = ""
     offsets: list[int] = field(default_factory=list)  # offsets[i] = индекс в raw для text[i]; len = len(text)+1
@@ -59,13 +65,21 @@ class ParseState:
     ref_ids: dict[str, Any] = field(default_factory=dict)  # id сущностей справочника, найденных по ходу
     confidence: float = 0.0
     trace: list[StepTrace] = field(default_factory=list)
+    # разметка теггера по raw (pipeline/tagger.py); model_tried: батч уже прогнан, повторять не надо
+    model: Prediction | None = None
+    model_tried: bool = False
+    arbiter: dict[str, Any] = field(default_factory=dict)  # решения арбитра по полям (explain)
 
     # --- координаты ---
     def orig_span(self, start: int, end: int) -> tuple[int, int]:
         """[start, end) в text -> [s, e) в raw."""
         if not self.offsets or start >= end:
             return (0, 0)
-        return (self.offsets[start], self.offsets[end - 1] + 1)
+        e = self.offsets[end - 1] + 1
+        # NFC склеил «а» + U+0308 в один символ text: в raw диакритика идёт следом и входит в значение
+        while e < len(self.raw) and unicodedata.combining(self.raw[e]):
+            e += 1
+        return (self.offsets[start], e)
 
     def orig_slice(self, start: int, end: int) -> str:
         s, e = self.orig_span(start, end)

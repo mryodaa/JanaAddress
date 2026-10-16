@@ -52,12 +52,26 @@ def value_from(state: ParseState, toks: list[Token]) -> tuple[str, tuple[int, in
     return (val, (s, e)) if val else None
 
 
-def house_value(state: ParseState, tok: Token) -> tuple[str, tuple[int, int]]:
+def house_text(text: str) -> str:
     """Номер дома как есть, только без пробелов вокруг дроби: «1 / 2» -> «1/2»."""
+    return re.sub(r"\s*/\s*", "/", tidy_value(text))
+
+
+def house_value(state: ParseState, tok: Token) -> tuple[str, tuple[int, int]]:
     s, e = state.orig_span(tok.start, tok.end)
-    v = tidy_value(state.raw[s:e])
-    v = re.sub(r"\s*/\s*", "/", v)
-    return v, (s, e)
+    return house_text(state.raw[s:e]), (s, e)
+
+
+_EDGE_CHARS = frozenset(" \t\n\r.,;:-–—_/\\|'\"«»()[]{}#№*+=!?\u00a0\u200b\u200c\u200d\u2060\ufeff\u00ad")
+
+
+def trim_span(raw: str, s: int, e: int) -> tuple[int, int]:
+    """Спан без краевых пробелов, пунктуации и невидимых символов: так сравниваются спаны правил и модели."""
+    while s < e and raw[s] in _EDGE_CHARS:
+        s += 1
+    while e > s and raw[e - 1] in _EDGE_CHARS:
+        e -= 1
+    return s, e
 
 
 def followed_by_dot(state: ParseState, i: int) -> bool:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from itertools import takewhile
 
 from ..reference.normalize import fold
 from ..reference.store import Entity, Store, ambiguous_city_keys, get_store
@@ -51,6 +52,18 @@ class Admin:
             after.append(seg[j])
             j += 1
         return before, after
+
+    def _street_follows(self, state: ParseState, free: list[int], pos: int, city_id: int) -> bool:
+        """После позиции pos (через возможный тип улицы) идёт название улицы, известной в этом городе."""
+        toks = state.tokens
+        j = pos
+        while j < len(free) and toks[free[j]].kind == "word" and toks[free[j]].text in self.rules.street_types:
+            j += 1
+        words: list[str] = []
+        while j < len(free) and toks[free[j]].kind == "word" and len(words) < 3:
+            words.append(toks[free[j]].text)
+            j += 1
+        return any(self.store.streets(" ".join(words[:m]), city_id) for m in range(len(words), 0, -1))
 
     def _is_marker_word(self, text: str) -> bool:
         r = self.rules
@@ -208,7 +221,8 @@ class Admin:
                     mark(state, seg[k : k + n], "marker:city")
                     continue
                 name_toks = (after if pre else before)[:2] if not weak else []
-                name_toks = [i for i in name_toks if not self._is_marker_word(state.tokens[i].text)][:2]
+                # чужой маркер обрывает имя, а не пропускается: «city Ул . Елибаева» не город «Елибаева»
+                name_toks = list(takewhile(lambda i: not self._is_marker_word(state.tokens[i].text), name_toks))
                 if weak and fold(t.text) == "г" and (after if pre else before):
                     # «г Алматы» без точки: город из справочника не найден, пробуем нечётко
                     name_toks = (after if pre else before)[:1]
@@ -300,10 +314,27 @@ class Admin:
                     if not cities:
                         continue
                     whole = len(toks) == len(free)
-                    if fold(text) in amb and not whole:
-                        continue
                     nxt = free[start + n] if start + n < len(free) else None
                     after_nxt = free[start + n + 1] if start + n + 1 < len(free) else None
+                    if fold(text) in amb and not whole:
+                        # «Балхаш Гагарина 56»: имя совпадает с улицами, но дальше идёт улица этого города;
+                        # «Шу микрорайон 8»: дальше номерной микрорайон / квартал
+                        st_n = r.street_types.get(state.tokens[nxt].text) if nxt is not None else None
+                        numbered_area = (
+                            st_n is not None
+                            and st_n.kind != "street"
+                            and after_nxt is not None
+                            and state.tokens[after_nxt].kind == "num"
+                        )
+                        confirmed = [
+                            e
+                            for e in cities
+                            if start == 0
+                            and ((numbered_area and e.kind != "village") or self._street_follows(state, free, n, e.id))
+                        ]
+                        if not confirmed:
+                            continue
+                        cities = confirmed
                     if nxt is not None and state.tokens[nxt].kind == "num":
                         # «Туркестан 12» это улица, но «Актау 14 мкр» это город + номер микрорайона
                         st_after = r.street_types.get(state.tokens[after_nxt].text) if after_nxt is not None else None
@@ -317,11 +348,13 @@ class Admin:
                     ):
                         continue
                     # тип улицы ПОСЛЕ названия («Абай даңғылы, 52») значит это улица;
-                    # тип с названием дальше («Петропавловск ул Конституции») значит город
+                    # тип с названием дальше («Петропавловск ул Конституции») значит город;
+                    # площадной тип с номером («Шымкент квартал 19») тоже город
+                    st_nxt = r.street_types.get(state.tokens[nxt].text) if nxt is not None else None
                     if (
-                        nxt is not None
-                        and state.tokens[nxt].text in r.street_types
+                        st_nxt is not None
                         and (after_nxt is None or state.tokens[after_nxt].kind != "word")
+                        and not (st_nxt.kind != "street" and after_nxt is not None)
                     ):
                         continue
                     e = self._prefer(state, cities)

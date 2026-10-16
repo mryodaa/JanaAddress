@@ -1,19 +1,5 @@
 import type { StepTrace } from "../api/client";
-
-const STEP_LABELS: Record<string, string> = {
-  clean: "1. Очистка",
-  tokenize: "2. Токены",
-  split_bilingual: "3. Рус/каз склейки",
-  admin: "4. Область, город, район",
-  details: "5. Дом, кв., подъезд, этаж",
-  street: "6. Улица / микрорайон",
-  landmark: "7. Ориентир",
-  numbers: "8. Номера по позиции",
-  leftover: "9. Остаток",
-  reference: "10. Справочник",
-  confidence: "11. Уверенность",
-  error: "Ошибка",
-};
+import { useI18n } from "../i18n";
 
 function fmt(v: unknown): string {
   if (v && typeof v === "object" && "value" in v) {
@@ -24,6 +10,8 @@ function fmt(v: unknown): string {
 }
 
 export function Trace({ trace }: { trace: StepTrace[] }) {
+  const { t: tr, stepLabels } = useI18n();
+
   return (
     <ol className="space-y-2">
       {trace.map((t) => {
@@ -32,8 +20,10 @@ export function Trace({ trace }: { trace: StepTrace[] }) {
         return (
           <li key={t.step} className="rounded-lg border border-slate-200 bg-white p-2.5">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-semibold text-slate-800">{STEP_LABELS[t.step] ?? t.step}</span>
-              <span className="font-mono text-[11px] text-slate-400">{t.ms.toFixed(2)} мс</span>
+              <span className="font-semibold text-slate-800">{stepLabels[t.step] ?? t.step}</span>
+              <span className="font-mono text-[11px] text-slate-400">
+                {t.ms.toFixed(2)} {tr("msUnit")}
+              </span>
             </div>
             {changes.length > 0 && (
               <ul className="mt-1 space-y-0.5 font-mono text-xs text-slate-700">

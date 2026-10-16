@@ -78,7 +78,9 @@ def test_orig_span_roundtrip() -> None:
         ("ж/м Шанырак", [("ж/м", "word"), ("Шанырак", "word")]),
         ("пр-т Абая", [("пр-т", "word"), ("Абая", "word")]),
         ("150-23", [("150", "num"), ("-", "punct"), ("23", "num")]),
-        ("12 а кв 5", [("12", "num"), ("а", "word"), ("кв", "word"), ("5", "num")]),
+        ("12 а кв 5", [("12 а", "num"), ("кв", "word"), ("5", "num")]),
+        ("12 а Абая", [("12", "num"), ("а", "word"), ("Абая", "word")]),
+        ("12 а.", [("12", "num"), ("а", "word"), (".", "punct")]),
     ],
 )
 def test_tokenize(text: str, expected: list[tuple[str, str]]) -> None:
@@ -288,3 +290,43 @@ def test_confidence_orders_quality() -> None:
 def test_confidence_trace_has_parts() -> None:
     st = run_until("ул. Абая 10", "confidence")
     assert "parts" in st.trace[-1].changes
+
+
+# ---------- parts: организации и корпуса; layout: английская раскладка ----------
+def test_tokenize_splits_glued_building() -> None:
+    from jana_address.pipeline.tokenize import tokenize
+
+    assert [(t.text, t.kind) for t in tokenize("11к2")] == [("11", "num"), ("к", "word"), ("2", "num")]
+    assert [(t.text, t.kind) for t in tokenize("12к")] == [("12к", "num")]  # литера без номера корпуса
+
+
+def _run_until(raw: str, last: str) -> object:
+    from jana_address.pipeline.runner import Pipeline
+
+    p = Pipeline(tagger_mode="off")
+    p.steps = p.steps[: [s.name for s in p.steps].index(last) + 1]
+    return p.run(raw)
+
+
+def test_parts_consumes_org_and_building() -> None:
+    state = _run_until("ТОО «Сапа Трейд», ул. Абая 5 корп 2, АО Казахтелеком", "parts")
+    used = {t.text: t.used_by for t in state.tokens}  # type: ignore[attr-defined]
+    assert used["Сапа"] == used["Трейд"] == used["Казахтелеком"] == "noise:org"
+    assert used["корп"] == used["2"] == "building" and used["Абая"] is None
+    assert "building_part_ignored" in state.flags  # type: ignore[attr-defined]
+
+
+def test_parts_keeps_caps_street_and_lone_k() -> None:
+    state = _run_until("УЛ. АК ЖОЛ 5, к Абая", "parts")
+    assert all(t.used_by is None for t in state.tokens if t.kind == "word")  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("raw", "fixed"),
+    [("Fkvfns ek f,fz 150", "Алматы ул абая 150"), ("Almaty, ul. Abaya 150", None), ("Hello world 5", None),
+     ("ул. Абая 5", None)],
+)  # fmt: skip
+def test_layout(raw: str, fixed: str | None) -> None:
+    from jana_address.pipeline.layout import Layout
+
+    assert Layout().fix(raw) == fixed

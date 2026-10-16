@@ -49,5 +49,5 @@ packages = ["jana_address"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["rapidfuzz.*"]
+module = ["rapidfuzz.*", "onnxruntime.*"]
 ignore_missing_imports = true

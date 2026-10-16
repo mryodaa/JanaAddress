@@ -20,19 +20,34 @@ FAIL_CONFIDENCE = 0.0
 EMPTY_CONFIDENCE = 0.0
 
 
-def default_steps() -> list[Step]:
+def default_steps(tagger_mode: str | None = None) -> list[Step]:
     """Порядок шагов. Импорт внутри, чтобы справочник грузился лениво."""
     from . import steps
 
-    return steps.build_default()
+    return steps.build_default(tagger_mode)
 
 
 class Pipeline:
-    def __init__(self, steps: Sequence[Step] | None = None) -> None:
-        self.steps: list[Step] = list(steps) if steps is not None else default_steps()
+    def __init__(self, steps: Sequence[Step] | None = None, tagger_mode: str | None = None) -> None:
+        self.steps: list[Step] = list(steps) if steps is not None else default_steps(tagger_mode)
 
-    def run(self, raw: str) -> ParseState:
-        state = ParseState(raw=raw)
+    def predict_models(self, raws: Sequence[str | None]) -> list[Any]:
+        """Разметка теггером всего батча одним вызовом (батчи по длине). Любой сбой: None, то есть правила."""
+        out: list[Any] = [None] * len(raws)
+        step = next((s for s in self.steps if hasattr(s, "predict_many")), None)
+        if step is None:
+            return out
+        idx = [i for i, r in enumerate(raws) if isinstance(r, str) and r.strip()]
+        try:
+            preds = step.predict_many([raws[i] for i in idx])
+            for i, p in zip(idx, preds, strict=True):
+                out[i] = p
+        except Exception:
+            log.exception("разметка батча теггером не удалась, работаем на правилах")
+        return out
+
+    def run(self, raw: str, model: Any = None, model_tried: bool = False) -> ParseState:
+        state = ParseState(raw=raw, model=model, model_tried=model_tried)
         for step in self.steps:
             before = {k: v.value for k, v in state.fields.items()}
             t0 = time.perf_counter()
@@ -78,10 +93,15 @@ def explain_extra(state: ParseState) -> dict[str, Any]:
     }
     unparsed = [state.orig_slice(t.start, t.end) for t in state.tokens if t.free and t.kind in ("word", "num")]
     trace = [{"step": t.step, "ms": t.ms, "changes": t.changes, "notes": t.notes} for t in state.trace]
-    return {"fields": fields, "trace": trace, "unparsed": unparsed}
+    out: dict[str, Any] = {"fields": fields, "trace": trace, "unparsed": unparsed}
+    if state.model is not None:
+        out["model"] = {"spans": state.model.to_json(), **state.arbiter}
+    return out
 
 
-def parse_record(pipeline: Pipeline, rec: dict[str, Any], explain: bool = False) -> dict[str, Any]:
+def parse_record(
+    pipeline: Pipeline, rec: dict[str, Any], explain: bool = False, model: Any = None, model_tried: bool = False
+) -> dict[str, Any]:
     raw = rec.get("raw_address")
     if not isinstance(raw, str) or not raw.strip():
         out = empty_result(rec, EMPTY_CONFIDENCE)
@@ -89,7 +109,7 @@ def parse_record(pipeline: Pipeline, rec: dict[str, Any], explain: bool = False)
             out.update({"fields": {}, "trace": [], "unparsed": []})
         return out
     try:
-        state = pipeline.run(raw)
+        state = pipeline.run(raw, model, model_tried)
         out = state_to_result(rec, state)
         if explain:
             out.update(explain_extra(state))
@@ -109,4 +129,7 @@ def parse_record(pipeline: Pipeline, rec: dict[str, Any], explain: bool = False)
 
 
 def parse_records(pipeline: Pipeline, records: Iterable[dict[str, Any]], explain: bool = False) -> list[dict[str, Any]]:
-    return [parse_record(pipeline, r, explain) for r in records]
+    recs = list(records)
+    models = pipeline.predict_models([r.get("raw_address") for r in recs])
+    has_model = any(hasattr(s, "predict_many") for s in pipeline.steps)
+    return [parse_record(pipeline, r, explain, m, has_model) for r, m in zip(recs, models, strict=True)]

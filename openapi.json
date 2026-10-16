@@ -748,6 +748,19 @@
       "type": "array",
       "title": "Unparsed",
       "description": "куски строки, не ушедшие ни в одно поле"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model",
+      "description": "разметка теггера (спаны в raw, p) и решения арбитра по полям; нет модели: null"
      }
     },
     "additionalProperties": false,

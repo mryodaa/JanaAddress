@@ -56,3 +56,15 @@ def test_weights() -> None:
     r = evaluate(pred, gold)
     # справочная группа пуста -> веса 0.60 и 0.25 перенормируются
     assert math.isclose(r["score"], 0.60 / 0.85)
+
+
+def test_per_record_and_tags() -> None:
+    gold = [
+        rec(id="1", street_name="Абая", house="1/2", _tags=["house_fraction"]),
+        rec(id="2", street_name="Абая", house="7", _tags=["house_fraction", "latin_detail"]),
+    ]
+    pred = [rec(id="1", street_name="Абая", house="1/2"), rec(id="2", street_name="Абая", house="8")]
+    r = evaluate(pred, gold)
+    assert [x["wrong"] for x in r["per_record"]] == [[], ["house"]]
+    assert math.isclose(r["tags"]["house_fraction"]["ok"], 0.5)
+    assert r["tags"]["latin_detail"]["wrong_fields"] == {"house": 1}

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { FieldExplain, FieldName } from "../api/client";
-import { FIELD_COLORS, FIELD_LABELS, highlight, sourceLabel, visible } from "../lib/fields";
+import { useI18n } from "../i18n";
+import { FIELD_COLORS, highlight, visible } from "../lib/fields";
 
 export function ConfidenceBadge({ value, threshold }: { value: number; threshold: number }) {
   const pct = Math.round(value * 100);
@@ -22,6 +23,7 @@ export function ConfidenceBadge({ value, threshold }: { value: number; threshold
 }
 
 export function Highlighted({ raw, fields }: { raw: string; fields: Partial<Record<string, FieldExplain>> }) {
+  const { fieldLabels } = useI18n();
   return (
     <span className="whitespace-pre-wrap break-words">
       {highlight(raw, fields).map((p, i) =>
@@ -29,7 +31,7 @@ export function Highlighted({ raw, fields }: { raw: string; fields: Partial<Reco
           <mark
             // biome-ignore lint/suspicious/noArrayIndexKey: куски строки не переставляются
             key={i}
-            title={FIELD_LABELS[p.field]}
+            title={fieldLabels[p.field] ?? p.field}
             className={`rounded px-0.5 ring-1 ring-inset ${FIELD_COLORS[p.field].mark}`}
           >
             {visible(p.text)}
@@ -46,12 +48,13 @@ export function Highlighted({ raw, fields }: { raw: string; fields: Partial<Reco
 }
 
 export function Legend() {
+  const { fieldLabels } = useI18n();
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
-      {(Object.keys(FIELD_LABELS) as FieldName[]).map((f) => (
+      {(Object.keys(FIELD_COLORS) as FieldName[]).map((f) => (
         <span key={f} className="inline-flex items-center gap-1">
           <span className={`h-2.5 w-2.5 rounded-sm ${FIELD_COLORS[f].dot}`} />
-          {FIELD_LABELS[f]}
+          {fieldLabels[f] ?? f}
         </span>
       ))}
     </div>
@@ -59,6 +62,7 @@ export function Legend() {
 }
 
 export function SourceTag({ source }: { source: string | null | undefined }) {
+  const { t, sourceLabel } = useI18n();
   const label = sourceLabel(source);
   if (!label) return null;
   const manual = source === "manual";
@@ -67,9 +71,9 @@ export function SourceTag({ source }: { source: string | null | undefined }) {
       className={`ml-1 rounded px-1 py-px text-[10px] font-medium uppercase tracking-wide ${
         manual ? "bg-slate-800 text-white" : "bg-sky-100 text-sky-800"
       }`}
-      title={manual ? "исправлено оператором" : "восстановлено по справочнику, в строке этого нет"}
+      title={manual ? t("sourceManualTooltip") : t("sourceRefTooltip")}
     >
-      {manual ? "правка" : "справ."}
+      {manual ? t("sourceManual") : t("sourceRef")}
     </span>
   );
 }

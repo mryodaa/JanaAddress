@@ -68,6 +68,7 @@ class Rules:
     noise: PhraseIndex[bool]
     building_part: PhraseIndex[bool]
     needs_dot: set[str]
+    needs_number: set[str]
     house_dash_apartment: bool
     province_markers: PhraseIndex[bool]
     district_markers: PhraseIndex[bool]
@@ -83,6 +84,11 @@ class Rules:
     lm_brands: PhraseIndex[bool]
     lm_numbered: set[str]
     confidence: dict[str, Any] = field(default_factory=dict)
+    arbiter: dict[str, Any] = field(default_factory=dict)
+    org_forms: set[str] = field(default_factory=set)
+    org_forms_upper: set[str] = field(default_factory=set)
+    number_name_words: set[str] = field(default_factory=set)
+    historical_provinces: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -106,6 +112,7 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
     ad = _read(d / "admin.yaml")
     lm = _read(d / "landmarks.yaml")
     conf = _read(d / "confidence.yaml")
+    arb = _read(d / "arbiter.yaml") if (d / "arbiter.yaml").exists() else {}
 
     street_types: PhraseIndex[StreetType] = PhraseIndex()
     for canonical, spec in st.items():
@@ -125,6 +132,7 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
         noise=_flag_index(mk.get("noise", [])),
         building_part=_flag_index(mk.get("building_part", [])),
         needs_dot={fold(str(x)) for x in mk.get("needs_dot", [])},
+        needs_number={fold(str(x)) for x in mk.get("needs_number", [])},
         house_dash_apartment=bool(mk.get("house_dash_apartment", True)),
         province_markers=_flag_index(ad.get("province_markers", [])),
         district_markers=_flag_index(ad.get("district_markers", [])),
@@ -140,6 +148,11 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
         lm_brands=_flag_index(lm.get("brands", [])),
         lm_numbered={fold(str(x)) for x in lm.get("numbered_objects", [])},
         confidence=conf,
+        arbiter=arb,
+        org_forms={fold(str(x)) for x in mk.get("org_forms", [])},
+        org_forms_upper={fold(str(x)) for x in mk.get("org_forms_upper", [])},
+        number_name_words={fold(str(x)) for x in mk.get("number_name_words", [])},
+        historical_provinces={str(k): {str(v) for v in vs} for k, vs in ad.get("historical_provinces", {}).items()},
     )
 
 

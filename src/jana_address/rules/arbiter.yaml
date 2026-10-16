@@ -1,0 +1,24 @@
+# Веса арбитра правил и теггера (pipeline/arbiter.py). Счёт кандидата поля, в шкале логита P(значение верно):
+#   score = prior[источник] + w_p[источник] * p + сумма весов сработавших проверок (checks)
+# p модели: откалиброванная на val вероятность «спан верен» (models/tagger_meta.json, calibration);
+# p правил: rules_p[поле] * score поля из шага правил.
+# accept_model_only: поле, где правила дали null, берётся у модели только при счёте выше (логит 0.8) и
+#   p >= min_p_model_only (null лучше неверного). hard_veto: проверки, после которых кандидат модели не берётся
+#   никогда (этаж 99, «ул» вместо названия), какой бы вес ни дала регрессия.
+# noise_p: порог p спана NOISE/KZ_DUP, после которого пересечение с ним штрафуется (noise_overlap).
+# max_disputed: больше спорных полей в записи: не перебираем, оставляем правила.
+# Подбор: python -m training.fit_arbiter --write (логистическая регрессия только на dev: dev_synth.json,
+#   dev_chaos.json, val-синтетика теггера; после выдачи данных data/dev_gold.json). Отложенные наборы не трогаются.
+# подобрано на: dev_synth, dev_chaos, val
+
+w_p: {rules: 1.839, model: 2.209}
+prior: {rules: 0.762, model: 2.174}
+rules_p: {default: 1.0}
+checks: {ref_exists: 1.361, ref_consistent: 0.499, ref_conflict: -0.045, street_in_city: 0.437,
+  street_fuzzy: 0.073, house_on_street: 0.56, area_in_city: 0.191, grammar_ok: 0.936,
+  grammar_bad: -0.071, noise_overlap: -1.825, marker_only: -0.014}
+accept_model_only: {default: 1.386}
+min_p_model_only: {default: 0.9, landmark: 0.85}
+noise_p: 0.8
+max_disputed: 8
+hard_veto: [grammar_bad, marker_only]

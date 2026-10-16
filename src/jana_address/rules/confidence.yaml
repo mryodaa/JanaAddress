@@ -13,7 +13,11 @@ per_unparsed_token: -0.05
 max_unparsed_penalty: -0.25
 no_street_and_house: -0.30
 flags:
+  model_override: -0.02
+  model_disagree: -0.01
+  model_agree_all: 0.11
   city_province_conflict: -0.20
+  layout_fixed: -0.10          # строка перекодирована из английской раскладки (Q19)
   house_like_area_number: -0.10
   ambiguous_orientation: -0.06
   bilingual_unresolved: -0.05

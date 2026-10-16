@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ..reference.store import Entity, Store, get_store
+from ..rules_loader import Rules, get_rules
 from .base import SOURCE_STRING, ParseState, StepTrace
 
 AREA_TYPES = frozenset(
@@ -19,11 +20,18 @@ AREA_TYPES = frozenset(
 DOMINANT_SHARE = 0.8
 
 
+def historical_province(rules: Rules, store: Store, prov: Entity, city: Entity) -> bool:
+    """Прежняя область города после передела («ВКО, г. Семей»): не конфликт (rules/admin.yaml)."""
+    modern = store.province_of(city)
+    return modern is not None and prov.name in rules.historical_provinces.get(modern.name, set())
+
+
 class Reference:
     name = "reference"
 
-    def __init__(self, store: Store | None = None) -> None:
+    def __init__(self, store: Store | None = None, rules: Rules | None = None) -> None:
         self.store = store or get_store()
+        self.rules = rules or get_rules()
 
     def _fill(
         self,
@@ -132,7 +140,10 @@ class Reference:
             and state.fields["city"].source == SOURCE_STRING
             and state.fields["province"].source == SOURCE_STRING
         ):
-            state.flags.add("city_province_conflict")
+            if historical_province(self.rules, s, prov, city):
+                tr.notes.append(f"область {prov.name!r} прежняя для {city.name!r} (передел): не конфликт, как написано")
+            else:
+                state.flags.add("city_province_conflict")
 
         # район
         if not state.has("district"):

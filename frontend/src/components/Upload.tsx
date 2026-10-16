@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
+import { useI18n } from "../i18n";
 import { Button, Card } from "./ui";
 
 export function Upload({ onSession }: { onSession: (id: string) => void }) {
+  const { t, locale } = useI18n();
   const [drag, setDrag] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +60,16 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
               strokeLinejoin="round"
             />
           </svg>
-          <div className="text-base font-semibold">Перетащите JSON-файл с адресами</div>
+          <div className="text-base font-semibold">{t("dropTitle")}</div>
           <div className="text-sm text-slate-500">
-            формат как у <code className="rounded bg-slate-100 px-1">sample_input.json</code>: записи{" "}
+            {t("dropHintPre")}
+            <code className="rounded bg-slate-100 px-1">sample_input.json</code>
+            {t("dropHintMid")}
             <code className="rounded bg-slate-100 px-1">{"{id, raw_address}"}</code>
+            {t("dropHintPost")}
           </div>
           <Button variant="primary" onClick={() => input.current?.click()}>
-            Выбрать файл
+            {t("selectFile")}
           </Button>
           <input
             ref={input}
@@ -85,7 +90,9 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
                   style={{ width: `${Math.round(progress * 100)}%` }}
                 />
               </div>
-              <div className="mt-1 text-xs text-slate-500">загрузка {Math.round(progress * 100)}%</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {t("uploadProgress", { pct: Math.round(progress * 100) })}
+              </div>
             </div>
           )}
           {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
@@ -93,7 +100,7 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
       </Card>
 
       {recent.data && recent.data.length > 0 && (
-        <Card title="Предыдущие пакеты">
+        <Card title={t("recentBatches")}>
           <ul className="divide-y divide-slate-100">
             {recent.data.slice(0, 8).map((s) => (
               <li key={s.id}>
@@ -104,7 +111,8 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
                 >
                   <span className="truncate font-medium">{s.name}</span>
                   <span className="shrink-0 text-xs text-slate-500">
-                    {s.total} записей · {new Date(s.created_at * 1000).toLocaleString("ru-RU")}
+                    {t("recordsCount", { total: s.total })} ·{" "}
+                    {new Date(s.created_at * 1000).toLocaleString(locale)}
                   </span>
                 </button>
               </li>

@@ -16,3 +16,9 @@ idna==3.20
 python-multipart==0.0.32
 pyyaml==6.0.3
 rapidfuzz==3.14.6
+# теггер (src/jana_address/tagger): ONNX-инференс + CRF на numpy
+numpy==2.5.4
+onnxruntime==1.31.0
+flatbuffers==25.12.19
+protobuf==7.36.2
+packaging==26.3

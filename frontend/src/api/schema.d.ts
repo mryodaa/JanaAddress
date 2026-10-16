@@ -205,6 +205,13 @@ export interface components {
              * @description куски строки, не ушедшие ни в одно поле
              */
             unparsed?: string[];
+            /**
+             * Model
+             * @description разметка теггера (спаны в raw, p) и решения арбитра по полям; нет модели: null
+             */
+            model?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** FieldExplain */
         FieldExplain: {

@@ -32,8 +32,19 @@ def _as_record(item: Any) -> dict[str, Any]:
     return {"id": None, "raw_address": None}
 
 
+def decode(data: bytes) -> str:
+    """UTF-8 (с BOM или без); UTF-16 по BOM; иначе cp1251. Файл из Excel/Windows не должен ронять весь
+    батч (docs/QUESTIONS.md, Q16). Ответ всегда в UTF-8."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1251")
+
+
 def loads(data: bytes | str) -> tuple[list[dict[str, Any]], Container]:
-    text = data.decode("utf-8-sig") if isinstance(data, bytes) else data.lstrip("\ufeff")
+    text = decode(data) if isinstance(data, bytes) else data.lstrip("\ufeff")
     stripped = text.strip()
     if not stripped:
         return [], Container("list")

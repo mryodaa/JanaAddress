@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../api/client";
+import { useI18n } from "../i18n";
 import { Card } from "./ui";
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -12,6 +13,7 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 }
 
 export function Summary({ s, onUncertain }: { s: SessionInfo; onUncertain: () => void }) {
+  const { t } = useI18n();
   const sum = s.summary;
   const max = Math.max(1, ...sum.histogram);
   const th = sum.threshold;
@@ -19,21 +21,27 @@ export function Summary({ s, onUncertain }: { s: SessionInfo; onUncertain: () =>
   return (
     <Card className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 md:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Записей" value={s.total} hint={s.name ?? undefined} />
+        <Stat label={t("statRecords")} value={s.total} hint={s.name ?? undefined} />
         <Stat
-          label="Обработано"
+          label={t("statProcessed")}
           value={done ? s.processed : `${Math.round((s.processed / Math.max(1, s.total)) * 100)}%`}
-          hint={s.seconds != null ? `${s.seconds.toFixed(1)} с` : "идёт разбор…"}
+          hint={
+            s.seconds != null ? t("secondsFmt", { s: s.seconds.toFixed(1) }) : t("parsingInProgressShort")
+          }
         />
         <button type="button" onClick={onUncertain} className="text-left hover:opacity-80">
-          <Stat label={`Неуверенных (< ${Math.round(th * 100)}%)`} value={sum.uncertain} hint="показать →" />
+          <Stat
+            label={t("statUncertain", { pct: Math.round(th * 100) })}
+            value={sum.uncertain}
+            hint={t("showLink")}
+          />
         </button>
         <Stat
-          label="Проверено"
+          label={t("statReviewed")}
           value={sum.reviewed}
           hint={
             sum.mean_confidence != null
-              ? `ср. уверенность ${Math.round(sum.mean_confidence * 100)}%`
+              ? t("avgConfidence", { pct: Math.round(sum.mean_confidence * 100) })
               : undefined
           }
         />
@@ -47,8 +55,8 @@ export function Summary({ s, onUncertain }: { s: SessionInfo; onUncertain: () =>
         )}
       </div>
       <div>
-        <div className="mb-1 text-xs text-slate-500">Распределение confidence</div>
-        <div className="flex h-20 items-end gap-1" role="img" aria-label="гистограмма уверенности">
+        <div className="mb-1 text-xs text-slate-500">{t("confidenceDist")}</div>
+        <div className="flex h-20 items-end gap-1" role="img" aria-label={t("confidenceHistogramAria")}>
           {sum.histogram.map((n, i) => (
             <div key={`b${i * 10}`} className="flex flex-1 flex-col items-center gap-0.5">
               <span className="text-[10px] tabular-nums text-slate-400">{n || ""}</span>

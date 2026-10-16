@@ -69,6 +69,9 @@ class ExplainRecord(OutputRecord):
     fields: dict[str, FieldExplain] = Field(default_factory=dict)
     trace: list[StepTraceOut] = Field(default_factory=list)
     unparsed: list[str] = Field(default_factory=list, description="куски строки, не ушедшие ни в одно поле")
+    model: dict[str, Any] | None = Field(
+        default=None, description="разметка теггера (спаны в raw, p) и решения арбитра по полям; нет модели: null"
+    )
 
 
 class ParseOneRequest(BaseModel):

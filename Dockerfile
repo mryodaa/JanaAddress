@@ -1,5 +1,5 @@
 # Офлайн-сборка: все Python-зависимости из vendor/wheels (pip --no-index),
-# фронт уже собран в src/jana_address/static, справочник лежит в reference/.
+# фронт уже собран в src/jana_address/static, справочник лежит в reference/, теггер в models/.
 # Проверка: docker build --network=none -t jana-address .
 FROM python:3.12-slim
 
@@ -19,6 +19,8 @@ RUN pip install --no-index --find-links /tmp/wheels -r /app/requirements.txt \
     && rm -rf /tmp/wheels
 
 COPY reference/reference.sqlite /app/reference/reference.sqlite
+# посимвольный теггер (int8 ONNX + meta, < 5 МБ); без него сервис работает на правилах
+COPY models /app/models
 COPY src /app/src
 
 RUN useradd --create-home --uid 10001 app && mkdir -p /app/var && chown app /app/var
