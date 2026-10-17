@@ -21,8 +21,9 @@ EDITS_DB = _path("JANA_EDITS_DB", REPO_DIR / "var" / "edits.sqlite")
 RULES_DIR = _path("JANA_RULES_DIR", PACKAGE_DIR / "rules")
 STATIC_DIR = _path("JANA_STATIC_DIR", PACKAGE_DIR / "static")
 
-# записи с confidence ниже порога считаются «неуверенными» (фильтр в UI, сводка)
-UNCERTAIN_THRESHOLD = float(os.environ.get("JANA_UNCERTAIN_THRESHOLD", "0.6"))
+# записи с confidence ниже порога считаются «неуверенными» (фильтр в UI, сводка). 0.95 выбран на dev
+# (training/fit_confidence.py): на живых строках llm_dev+egov_dev на проверку 13% записей, в них 6 из 8 ошибок
+UNCERTAIN_THRESHOLD = float(os.environ.get("JANA_UNCERTAIN_THRESHOLD", "0.95"))
 MAX_UPLOAD_MB = int(os.environ.get("JANA_MAX_UPLOAD_MB", "100"))
 
 # посимвольный теггер (docs/ARCHITECTURE.md, «Гибридный разбор»)

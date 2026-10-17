@@ -7,9 +7,7 @@ export interface TranslationDictionary {
   appTitle: string;
   navBatch: string;
   navCheck: string;
-  serviceReady: string;
   serviceLoading: string;
-  serviceTitle: string;
   serviceUnavailable: string;
   loading: string;
   osmAttribution: string;
@@ -26,7 +24,6 @@ export interface TranslationDictionary {
 
   // Check single address screen
   inputPlaceholder: string;
-  parseButton: string;
   pipelineSteps: string;
   unparsed: string;
 
@@ -47,7 +44,7 @@ export interface TranslationDictionary {
   statRecords: string;
   statProcessed: string;
   statUncertain: string;
-  statReviewed: string;
+  statConfident: string;
   showLink: string;
   avgConfidence: string;
   confidenceDist: string;
@@ -80,14 +77,92 @@ export interface TranslationDictionary {
   sourceRefBase: string;
   msUnit: string;
 
+  // UI v2: фильтры, редактор, загрузка, подсказки
+  clear: string;
+  uploadTitle: string;
+  uploadSubtitle: string;
+  dropRelease: string;
+  formatExample: string;
+  statusProcessing: string;
+  statusDone: string;
+  deleteBatch: string;
+  deleteConfirm: string;
+  batchDeleted: string;
+  filterAria: string;
+  filterAll: string;
+  filterUncertain: string;
+  filterEdited: string;
+  resetFilters: string;
+  thresholdMark: string;
+  groupLocality: string;
+  groupStreet: string;
+  groupFlat: string;
+  groupLandmark: string;
+  skip: string;
+  revert: string;
+  revertTo: string;
+  setNull: string;
+  changedCount: string;
+  unsavedTitle: string;
+  unsavedSave: string;
+  unsavedDiscard: string;
+  saved: string;
+  saveError: string;
+  pickHint: string;
+  shortcutsTitle: string;
+  kbNav: string;
+  kbNavEditor: string;
+  kbSave: string;
+  kbClose: string;
+  kbUncertain: string;
+  kbSearch: string;
+  kbHelp: string;
+  kbPickHint: string;
+  checkTitle: string;
+  checkSubtitle: string;
+  examples: string;
+  liveHint: string;
+  copyJson: string;
+  copied: string;
+  copyFailed: string;
+  addedColumn: string;
+  addedHint: string;
+  sortHint: string;
+
+  // шаги пайплайна
+  traceSummary: string;
+  howParsed: string;
+  traceQuietShort: string;
+  traceShowQuiet: string;
+  traceHideQuiet: string;
+  traceDetails: string;
+  traceTokens: string;
+  traceRemoved: string;
+  traceKept: string;
+  traceDropped: string;
+  traceNotAddress: string;
+  traceAgree: string;
+  traceDispute: string;
+  traceRulesOnly: string;
+  traceModelOnly: string;
+  traceWinnerRules: string;
+  traceWinnerModel: string;
+  traceOrientation: string;
+  traceFinal: string;
+  traceLayout: string;
+  traceDup: string;
+  traceNoise: string;
+
   // Field labels
   fields: Record<FieldName, string>;
 
   // Pipeline step names
   steps: Record<string, string>;
+  // что делает шаг, одной фразой
+  stepHints: Record<string, string>;
 }
 
-export type TranslationKey = keyof Omit<TranslationDictionary, "fields" | "steps">;
+export type TranslationKey = keyof Omit<TranslationDictionary, "fields" | "steps" | "stepHints">;
 
 export interface AvailableLanguage {
   code: Language;

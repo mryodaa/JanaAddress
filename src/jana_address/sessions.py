@@ -21,7 +21,7 @@ from .models import PARSED_FIELDS
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY, name TEXT, created_at REAL, status TEXT, total INTEGER, processed INTEGER,
-    container TEXT, error TEXT, seconds REAL
+    container TEXT, error TEXT, seconds REAL, threshold REAL
 );
 CREATE TABLE IF NOT EXISTS records (
     session_id TEXT NOT NULL, idx INTEGER NOT NULL, rec TEXT NOT NULL, parsed TEXT, edited TEXT,
@@ -30,7 +30,27 @@ CREATE TABLE IF NOT EXISTS records (
 );
 """
 CHUNK = 200
+# порог старой линейной модели confidence: сессии до перехода на логистическую (без threshold в строке)
+# хранят её оценки, и мерить их новым порогом нельзя, шкалы разные
+LEGACY_THRESHOLD = 0.6
+# неуверенная и ещё не исправленная запись; ожидающая разбора (confidence NULL) тоже сюда
+UNCERTAIN_SQL = "(confidence IS NULL OR confidence < ?) AND edited IS NULL"
 _lock = threading.Lock()
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    cols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
+    if "threshold" not in cols:
+        con.execute("ALTER TABLE sessions ADD COLUMN threshold REAL")
+    # сессии без порога: модель видна по trace (у логистической в шаге confidence есть logit)
+    for (sid,) in con.execute("SELECT id FROM sessions WHERE threshold IS NULL").fetchall():
+        row = con.execute(
+            "SELECT parsed FROM records WHERE session_id = ? AND parsed IS NOT NULL LIMIT 1", (sid,)
+        ).fetchone()
+        trace = json.loads(row[0]).get("trace", []) if row else []
+        logistic = any(t.get("step") == "confidence" and "logit" in t.get("changes", {}) for t in trace)
+        th = config.UNCERTAIN_THRESHOLD if logistic else LEGACY_THRESHOLD
+        con.execute("UPDATE sessions SET threshold = ? WHERE id = ?", (th, sid))
 
 
 @contextmanager
@@ -40,6 +60,7 @@ def connect() -> Iterator[sqlite3.Connection]:
     con.row_factory = sqlite3.Row
     try:
         con.executescript(SCHEMA)
+        _migrate(con)
         yield con
         con.commit()
     finally:
@@ -59,8 +80,18 @@ def create(records: list[dict[str, Any]], container: io_format.Container, name: 
     sid = uuid.uuid4().hex[:12]
     with _lock, connect() as con:
         con.execute(
-            "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?)",
-            (sid, name, time.time(), "processing", len(records), 0, _container_json(container), None, None),
+            "INSERT INTO sessions (id, name, created_at, status, total, processed, container, threshold)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (
+                sid,
+                name,
+                time.time(),
+                "processing",
+                len(records),
+                0,
+                _container_json(container),
+                config.UNCERTAIN_THRESHOLD,
+            ),
         )
         con.executemany(
             "INSERT INTO records (session_id, idx, rec) VALUES (?,?,?)",
@@ -70,10 +101,21 @@ def create(records: list[dict[str, Any]], container: io_format.Container, name: 
     return sid
 
 
+def _alive(sid: str) -> bool:
+    with connect() as con:
+        return con.execute("SELECT 1 FROM sessions WHERE id = ?", (sid,)).fetchone() is not None
+
+
+def _threshold(s: sqlite3.Row) -> float:
+    return float(s["threshold"]) if s["threshold"] is not None else LEGACY_THRESHOLD
+
+
 def _process(sid: str, records: list[dict[str, Any]]) -> None:
     t0 = time.perf_counter()
     try:
         for start in range(0, len(records), CHUNK):
+            if not _alive(sid):
+                return  # пакет удалили во время разбора: дальше разбирать некому
             chunk = records[start : start + CHUNK]
             parsed = engine.parse_many(chunk, explain=True)
             with _lock, connect() as con:
@@ -141,6 +183,14 @@ def get_session(sid: str) -> dict[str, Any] | None:
         reviewed = con.execute("SELECT count(*) FROM records WHERE session_id = ? AND reviewed = 1", (sid,)).fetchone()[
             0
         ]
+        edited = con.execute(
+            "SELECT count(*) FROM records WHERE session_id = ? AND edited IS NOT NULL", (sid,)
+        ).fetchone()[0]
+        th = _threshold(s)
+        # тот же предикат, что у фильтра «неуверенные» в UI (list_records uncertain + reviewed=false)
+        to_review = con.execute(
+            f"SELECT count(*) FROM records WHERE session_id = ? AND {UNCERTAIN_SQL} AND reviewed = 0", (sid, th)
+        ).fetchone()[0]
         fill: dict[str, int] = dict.fromkeys(PARSED_FIELDS, 0)
         sources: dict[str, int] = {}
         for (p,) in con.execute("SELECT parsed FROM records WHERE session_id = ? AND parsed IS NOT NULL", (sid,)):
@@ -151,10 +201,12 @@ def get_session(sid: str) -> dict[str, Any] | None:
             for fv in d.get("fields", {}).values():
                 src = (fv.get("source") or "").split(":")[0]
                 sources[src] = sources.get(src, 0) + 1
-    hist = [0] * 10
+    # корзина с порогом внутри делится: hist_uncertain = сколько в корзине ниже порога
+    hist, hist_unc = [0] * 10, [0] * 10
     for c in confs:
-        hist[min(9, int((c or 0) * 10))] += 1
-    th = config.UNCERTAIN_THRESHOLD
+        b = min(9, int((c or 0) * 10))
+        hist[b] += 1
+        hist_unc[b] += (c or 0) < th
     return {
         "id": s["id"],
         "name": s["name"],
@@ -167,9 +219,13 @@ def get_session(sid: str) -> dict[str, Any] | None:
         "summary": {
             "threshold": th,
             "uncertain": sum(1 for c in confs if (c or 0) < th),
+            "confident": sum(1 for c in confs if (c or 0) >= th),
             "reviewed": reviewed,
+            "edited": edited,
+            "to_review": to_review,
             "mean_confidence": round(sum(confs) / len(confs), 3) if confs else None,
             "histogram": hist,
+            "histogram_uncertain": hist_unc,
             "fill": fill,
             "sources": sources,
         },
@@ -184,17 +240,31 @@ def list_sessions() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def _session_threshold(sid: str) -> float:
+    with connect() as con:
+        s = con.execute("SELECT threshold FROM sessions WHERE id = ?", (sid,)).fetchone()
+    return _threshold(s) if s else config.UNCERTAIN_THRESHOLD
+
+
 def list_records(
-    sid: str, uncertain: bool = False, reviewed: bool | None = None, q: str = "", offset: int = 0, limit: int = 20000
+    sid: str,
+    uncertain: bool = False,
+    reviewed: bool | None = None,
+    q: str = "",
+    offset: int = 0,
+    limit: int = 20000,
+    edited: bool | None = None,
 ) -> dict[str, Any]:
     where: list[str] = ["session_id = ?"]
     args: list[Any] = [sid]
     if uncertain:
-        where.append("(confidence IS NULL OR confidence < ?) AND edited IS NULL")
-        args.append(config.UNCERTAIN_THRESHOLD)
+        where.append(UNCERTAIN_SQL)
+        args.append(_session_threshold(sid))
     if reviewed is not None:
         where.append("reviewed = ?")
         args.append(int(reviewed))
+    if edited is not None:
+        where.append("edited IS NOT NULL" if edited else "edited IS NULL")
     if q:
         where.append("(rec LIKE ? OR parsed LIKE ? OR edited LIKE ?)")
         like = f"%{q}%"

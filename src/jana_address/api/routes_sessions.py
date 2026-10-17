@@ -20,11 +20,15 @@ class SessionCreated(BaseModel):
 
 
 class Summary(BaseModel):
-    threshold: float
+    threshold: float = Field(description="порог этой сессии: сохраняется при загрузке, у старых сессий 0.6")
     uncertain: int
+    confident: int = Field(description="записей с confidence не ниже порога")
     reviewed: int
+    edited: int = Field(description="записей, где оператор исправил хотя бы одно поле")
+    to_review: int = Field(description="неуверенных, ещё не проверенных и не исправленных (как фильтр uncertain)")
     mean_confidence: float | None
     histogram: list[int] = Field(description="10 корзин confidence: [0-0.1), ..., [0.9-1.0]")
+    histogram_uncertain: list[int] = Field(description="сколько в каждой корзине ниже порога")
     fill: dict[str, int] = Field(description="сколько записей с непустым полем")
     sources: dict[str, int] = Field(description="string / reference / manual")
 
@@ -108,11 +112,12 @@ def list_records(
     sid: str,
     uncertain: bool = False,
     reviewed: bool | None = None,
+    edited: bool | None = None,
     q: str = "",
     offset: int = Query(0, ge=0),
     limit: int = Query(20000, ge=1, le=100000),
 ) -> dict[str, Any]:
-    return sessions.list_records(sid, uncertain, reviewed, q, offset, limit)
+    return sessions.list_records(sid, uncertain, reviewed, q, offset, limit, edited)
 
 
 @router.get("/sessions/{sid}/records/{idx}", summary="Запись целиком, с trace по шагам", response_model=RecordItem)

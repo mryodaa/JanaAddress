@@ -58,7 +58,7 @@ flowchart LR
 | 9a | `tagger` | посимвольная разметка raw моделью (раздел «Гибридный разбор»); батч жюри размечается заранее одним вызовом. Нет модели или она упала: шаг пустой, дальше только правила. |
 | 9b | `arbiter` | сверка полей правил с разметкой модели, решение по спорным полям совместно, проверка справочником и грамматикой. В режиме `shadow` только пишет решения в trace. |
 | 10 | `reference` | заполняет только пустые поля: город → область, район → город, мкр → район/город, дом → район и мкр, улица → доминирующий район/мкр (лучший кандидат и при неоднозначности, флаг), доминирующий тип, пункт → район области, ориентир → район (слабо). Строковое значение не перезаписывается никогда (`ParseState.set_field`). |
-| 11 | `confidence` | взвешенная сумма из `rules/confidence.yaml`: доля разобранных токенов, остаток, флаги конфликтов, бонусы за совпадение со справочником. |
+| 11 | `confidence` | вероятность, что все поля метрики верны: логистическая регрессия по признакам (доля разобранных токенов, наличие полей, остаток, худший score поля, флаги, подтверждение справочником), веса в `rules/confidence.yaml` подбирает `training/fit_confidence.py`. В trace вклады в вероятность (сумма = итог). |
 
 Значения `street_name` и `landmark` вырезаются из **оригинальной** строки по спану (`util.value_from`). Удаляются только невидимые символы и мусорная пунктуация по краям.
 
@@ -109,7 +109,8 @@ STREET_NAME, HOUSE, APARTMENT, ENTRANCE, FLOOR, LANDMARK, KZ_DUP, NOISE; мар�
 6. Решение и причины по каждому полю пишутся в trace и в `explain.model`.
 
 Веса подобраны логистической регрессией (`training/fit_arbiter.py`) только на dev-наборах (dev_synth, dev_chaos,
-val-синтетика теггера); там же поправки confidence за согласие и расхождение правил и модели (по ECE).
+val-синтетика теггера). Confidence подбирается отдельно и целиком (`training/fit_confidence.py`): форма на синтетике
+dev (dev_synth, dev_chaos, val), уровень калибровкой Платта на живых dev-строках (llm_dev, egov_dev).
 
 **Как переобучить.**
 
@@ -120,7 +121,8 @@ python scripts/gen_train_tagger.py --n 5000 --seed 2001 --split train --out data
 python scripts/gen_train_tagger.py --n 3000 --seed 3001 --split unseen --out data/tagger/unseen.jsonl
 .venv-train/Scripts/python -m training.train --train data/tagger/train.jsonl --val data/tagger/val.jsonl     --unseen data/tagger/unseen.jsonl --out training/runs/v2 --resume      # CPU, около 7 мин на эпоху
 .venv-train/Scripts/python -m training.export --run training/runs/v2 --val data/tagger/val.jsonl     --unseen data/tagger/unseen.jsonl --out models                         # ONNX int8 + meta + калибровка
-.venv/Scripts/python -m training.fit_arbiter --write                       # веса арбитра и confidence на dev
+.venv/Scripts/python -m training.fit_arbiter --write                       # веса арбитра на dev
+.venv/Scripts/python -m training.fit_confidence --write                    # веса confidence на dev (после арбитра)
 .venv/Scripts/python scripts/compare_modes.py --out docs/hybrid_results.md # rules / tagger / hybrid + решение
 ```
 

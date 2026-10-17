@@ -1,4 +1,4 @@
-"""Подбор весов арбитра (rules/arbiter.yaml) и поправок confidence за согласие правил и модели (confidence.yaml).
+"""Подбор весов арбитра (rules/arbiter.yaml). Confidence подбирает training/fit_confidence.py.
 
     .venv/Scripts/python -m training.fit_arbiter [--sets dev_synth dev_chaos val] [--write]
 
@@ -9,8 +9,6 @@
    Метка кандидата: его значение совпадает с эталоном по правилам метрики. Логистическая регрессия на признаках
    [источник, p по источнику, проверки] даёт веса прямо в шкале счёта арбитра (логит): prior, w_p, checks.
    Порог принятия поля «только модели» = логит 0.8.
-2) Confidence: в режиме on перебор поправок за флаги model_agree_all / model_disagree / model_override,
-   минимум ECE (при равенстве Brier) на dev.
 """
 
 from __future__ import annotations
@@ -29,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts.eval import calibration, evaluate, load, norm  # noqa: E402
+from scripts.eval import load, norm  # noqa: E402
 
 from jana_address import config  # noqa: E402
 from jana_address.pipeline.runner import Pipeline, parse_records  # noqa: E402
@@ -84,40 +82,10 @@ def logreg(x: np.ndarray, y: np.ndarray, l2: float = 1e-3, iters: int = 3000, lr
     return w
 
 
-def flags_of(out: dict[str, Any]) -> set[str]:
-    fields = (out.get("model") or {}).get("fields") or {}
-    dec = [d.get("decision") for d in fields.values()]
-    if not dec:
-        return set()
-    out_flags = set()
-    if all(x == "agree" for x in dec):
-        out_flags.add("model_agree_all")
-    if any(x != "agree" for x in dec):
-        out_flags.add("model_disagree")
-    if any(x == "model" for x in dec):
-        out_flags.add("model_override")
-    return out_flags
-
-
-def fit_confidence(items: list[tuple[float, set[str], bool]]) -> dict[str, float]:
-    grid = [round(v, 2) for v in np.arange(-0.2, 0.201, 0.01)]
-    best: dict[str, float] = {}
-    for flag in ("model_agree_all", "model_disagree", "model_override"):
-        scores = []
-        for w in grid:
-            cur = {**best, flag: w}
-            conf = [(min(0.99, max(0.02, c + sum(cur.get(f, 0.0) for f in fl))), ok) for c, fl, ok in items]
-            ece = calibration(conf)["ece"]
-            brier = sum((c - ok) ** 2 for c, ok in conf) / len(conf)
-            scores.append((round(ece, 4), brier, w))
-        best[flag] = min(scores)[2]
-    return best
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sets", nargs="+", default=["dev_synth", "dev_chaos", "val"])
-    ap.add_argument("--write", action="store_true", help="записать веса в rules/arbiter.yaml и confidence.yaml")
+    ap.add_argument("--write", action="store_true", help="записать веса в rules/arbiter.yaml")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     golds = {s: load_set(s) for s in args.sets}
@@ -149,34 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         path.write_text("\n".join(head) + "\n\n" + body, "utf-8")
         print(f"-> {path}")
 
-    # confidence: режим on с новыми весами арбитра; прежние поправки за флаги модели обнуляем, иначе посчитаем дважды
-    from jana_address import rules_loader
-
-    rules_loader.get_rules.cache_clear()
-    for flag in ("model_agree_all", "model_disagree", "model_override"):
-        rules_loader.get_rules().confidence.get("flags", {}).pop(flag, None)
-    hybrid = Pipeline(tagger_mode="on")
-    items: list[tuple[float, set[str], bool]] = []
-    for s, gold in golds.items():
-        outs = parse_records(hybrid, recs[s], explain=True)
-        rep = evaluate(outs, gold)
-        for o, r in zip(outs, rep["per_record"], strict=True):
-            if r["counted"]:
-                items.append((float(o["confidence"]), flags_of(o), not r["wrong"]))
-    before = calibration([(c, ok) for c, _, ok in items])["ece"]
-    conf_w = {k: float(v) for k, v in fit_confidence(items).items()}
-    print(f"confidence: ECE до {before:.3f}, поправки {conf_w}")
-    if args.write:
-        cpath = config.RULES_DIR / "confidence.yaml"
-        text = cpath.read_text(encoding="utf-8")
-        for flag, v in conf_w.items():
-            line = f"  {flag}: {v}"
-            if f"  {flag}:" in text:
-                text = "\n".join(line if ln.startswith(f"  {flag}:") else ln for ln in text.split("\n"))
-            else:
-                text = text.replace("flags:\n", f"flags:\n{line}\n", 1)
-        cpath.write_text(text, encoding="utf-8")
-        print(f"-> {cpath}")
+    print("confidence подбирается отдельно: python -m training.fit_confidence --write")
     return 0
 
 

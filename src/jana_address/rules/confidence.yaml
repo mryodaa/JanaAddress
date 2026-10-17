@@ -1,42 +1,31 @@
-# Веса функции confidence (pipeline/confidence.py). Итог = clip(base + сумма, 0.02, 0.99).
-# Калибровку проверять scripts/eval.py (раздел «Калибровка», ECE) на dev_gold и подстраивать здесь.
+# Веса confidence (pipeline/confidence.py): p = sigmoid(intercept + сумма весов признаков), клип 0.02..0.99,
+# p = вероятность, что все поля метрики в записи верны; веса подбирает training/fit_confidence.py.
+# форма: dev_synth, dev_chaos, val (8000 записей), уровень: llm_dev, egov_dev (389), ECE на уровне 0.008
+# флаги реже 30 раз не входят (вес 0): city_district_conflict, city_province_conflict, district_ambiguous, district_by_landmark, fuzzy_admin, guessed_city
 
-base: 0.35
-# доля потреблённых токенов-слов/чисел (0..1) * вес
-consumed_ratio: 0.30
-# наличие полей из строки
-has_street_name: 0.12
-has_house: 0.12
-has_city_or_province: 0.06
-# штрафы
-per_unparsed_token: -0.05
-max_unparsed_penalty: -0.25
-no_street_and_house: -0.30
+intercept: -0.393
+features:
+  consumed: 0.373
+  street_name: 1.586
+  house: 0.07
+  admin: 1.229
+  unparsed: 0.008
+  no_street_house: 0.0
+  min_score: 1.473
 flags:
-  model_override: -0.02
-  model_disagree: -0.01
-  model_agree_all: 0.11
-  city_province_conflict: -0.20
-  layout_fixed: -0.10          # строка перекодирована из английской раскладки (Q19)
-  house_like_area_number: -0.10
-  ambiguous_orientation: -0.06
-  bilingual_unresolved: -0.05
-  fuzzy_admin: -0.05
-  guessed_street: -0.08
-  guessed_city: -0.05
-  city_district_conflict: -0.05  # пункт не из района, написанного в строке: город как в строке
-  extra_numbers: -0.08
-  district_ambiguous: -0.04    # улица в нескольких районах: взят лучший по доле (Q20)
-  # восстановление по справочнику с пониженной уверенностью (pipeline/reference_step.py); поля вне строки
-  # в метрику почти не входят, поэтому поправки маленькие: только чтобы UI показал сомнение
-  living_area_ambiguous: -0.02  # улица в нескольких мкр: взят лучший по доле
-  living_area_by_point: -0.01   # мкр дома по ближайшей place-точке, полигона нет
-  district_by_landmark: -0.02   # район по ориентиру, улицы в строке нет
-  district_by_near_polygon: -0.01  # село чуть за границей полигона района
-  street_type_dominant: -0.01   # тип улицы без маркера: доминирующий среди одноимённых
-  street_not_in_reference: -0.03
-  building_part_ignored: -0.05
-  marker_without_number: -0.05
-bonus:
-  street_in_reference: 0.06
-  house_in_reference: 0.04
+  ambiguous_orientation: -0.393
+  building_part_ignored: -0.253
+  district_by_near_polygon: 0.037
+  extra_numbers: -0.19
+  guessed_street: 0.031
+  house_in_reference: 0.318
+  house_like_area_number: -0.335
+  living_area_ambiguous: -0.124
+  living_area_by_point: -0.309
+  marker_without_number: -0.368
+  model_agree_all: 1.286
+  model_disagree: -1.286
+  model_override: 1.534
+  street_in_reference: 0.235
+  street_not_in_reference: -0.353
+  street_type_dominant: 0.02

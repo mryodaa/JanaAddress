@@ -27,6 +27,7 @@ export interface I18nContextValue {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   fieldLabels: Record<FieldName, string>;
   stepLabels: Record<string, string>;
+  stepHints: Record<string, string>;
   locale: string;
   sourceLabel: (source: string | null | undefined) => string | null;
   availableLanguages: AvailableLanguage[];
@@ -108,6 +109,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       t,
       fieldLabels: dict.fields,
       stepLabels: dict.steps,
+      stepHints: dict.stepHints,
       locale: currentLangMeta.locale,
       sourceLabel,
       availableLanguages: AVAILABLE_LANGUAGES,

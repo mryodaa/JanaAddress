@@ -52,7 +52,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () =>
-    request<{ status: string; reference?: { counts?: Record<string, number> } }>("/api/v1/health"),
+    request<{
+      status: string;
+      reference?: { counts?: Record<string, number>; houses?: number };
+      tagger?: { mode?: string; version?: string; metrics?: { unseen_span_f1?: number } };
+    }>("/api/v1/health"),
   config: () => request<{ uncertain_threshold: number }>("/api/v1/config"),
   parseOne: (raw_address: string) =>
     request<ExplainRecord>("/api/v1/parse?explain=true", {
@@ -62,9 +66,14 @@ export const api = {
     }),
   sessions: () => request<SessionBrief[]>("/api/v1/sessions"),
   session: (id: string) => request<SessionInfo>(`/api/v1/sessions/${id}`),
-  records: (id: string, params: { uncertain?: boolean; q?: string }) => {
+  records: (
+    id: string,
+    params: { uncertain?: boolean; reviewed?: boolean; edited?: boolean; q?: string },
+  ) => {
     const qs = new URLSearchParams();
     if (params.uncertain) qs.set("uncertain", "true");
+    if (params.reviewed !== undefined) qs.set("reviewed", String(params.reviewed));
+    if (params.edited !== undefined) qs.set("edited", String(params.edited));
     if (params.q) qs.set("q", params.q);
     return request<RecordList>(`/api/v1/sessions/${id}/records?${qs.toString()}`);
   },
@@ -75,6 +84,8 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ fields, reviewed }),
     }),
+  deleteSession: (id: string) =>
+    request<{ deleted: boolean }>(`/api/v1/sessions/${id}`, { method: "DELETE" }),
   exportUrl: (id: string) => `/api/v1/sessions/${id}/export`,
   upload: (file: File, onProgress?: (p: number) => void) =>
     new Promise<{ id: string; total: number }>((resolve, reject) => {

@@ -5,15 +5,19 @@ import { CheckOne } from "./components/CheckOne";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { SessionView } from "./components/SessionView";
 import { Upload } from "./components/Upload";
+import { DemoPage } from "./components/demo/DemoPage";
+import { DEMO_TEXTS } from "./components/demo/texts";
+import { Segmented } from "./components/ui";
 import { useI18n } from "./i18n";
 
-type Tab = "batch" | "check";
+type Tab = "batch" | "check" | "demo";
 
 const SID_KEY = "jana_address_sid";
 
 function readHash(): { tab: Tab; sid: string | null } {
   const h = window.location.hash.replace(/^#\/?/, "");
   if (h.startsWith("check")) return { tab: "check", sid: null };
+  if (h.startsWith("demo")) return { tab: "demo", sid: null };
   const m = h.match(/^s\/([\w-]+)/);
   return { tab: "batch", sid: m?.[1] ?? null };
 }
@@ -37,7 +41,7 @@ function storeSid(sid: string | null): void {
 }
 
 export function App() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [tab, setTab] = useState(() => readHash().tab);
   // пакет живёт отдельно от адреса: в #/check его нет, но вкладка «Пакет» должна вернуть к нему, а не к загрузке
   const [sid, setSid] = useState(() => {
@@ -46,7 +50,13 @@ export function App() {
   });
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 15000 });
   const cfg = useQuery({ queryKey: ["config"], queryFn: api.config });
-  const threshold = cfg.data?.uncertain_threshold ?? 0.6;
+  const threshold = cfg.data?.uncertain_threshold ?? 0.95;
+  // тот же ключ, что в SessionView: кэш общий, лишних запросов нет
+  const session = useQuery({
+    queryKey: ["session", sid],
+    queryFn: () => api.session(sid ?? ""),
+    enabled: !!sid,
+  });
 
   useEffect(() => {
     const on = () => {
@@ -62,69 +72,94 @@ export function App() {
     window.location.hash = hash;
   };
 
-  const ok = health.data?.status === "ok";
+  const status = health.isError ? "down" : health.data?.status === "ok" ? "ok" : "loading";
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-brand-700 bg-brand-600 text-white">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-          <a href="#/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <img src="/favicon.svg" alt="" className="h-7 w-7 rounded-md ring-1 ring-white/40" />
-            Jana Address
-          </a>
-          <nav className="flex gap-1 text-sm">
-            {(
-              [
-                ["batch", t("navBatch"), sid ? `#/s/${sid}` : "#/"],
-                ["check", t("navCheck"), "#/check"],
-              ] as const
-            ).map(([tKey, label, href]) => (
-              <button
-                type="button"
-                key={tKey}
-                onClick={() => nav(href)}
-                className={`rounded-md px-3 py-1 ${tab === tKey ? "bg-white text-brand-800" : "text-white/90 hover:bg-white/10"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <LangSwitcher />
-            <span
-              className="inline-flex items-center gap-1.5 text-xs text-white/90"
-              title={t("serviceTitle")}
-            >
-              <span className={`h-2 w-2 rounded-full ${ok ? "bg-lime-300" : "bg-amber-300"}`} />
-              {ok ? t("serviceReady") : t("serviceLoading")}
+      <header className="shrink-0 border-b border-line bg-canvas">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+          <a
+            href="#/"
+            className="group inline-flex items-center gap-2.5 rounded-xl bg-white py-1.5 pr-3 pl-1.5 font-semibold tracking-tight ring-1 ring-line transition hover:ring-brand-200"
+          >
+            <span className="relative">
+              <img
+                src="/favicon.svg"
+                alt=""
+                className="h-7 w-7 rounded-lg transition-transform duration-300 group-hover:-rotate-6"
+              />
+              {/* на узком экране чип статуса не помещается: точка на логотипе, только при проблеме */}
+              {status !== "ok" && (
+                <span
+                  className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white sm:hidden ${
+                    status === "down" ? "bg-danger" : "animate-pulse-dot bg-warn"
+                  }`}
+                />
+              )}
             </span>
+            <span>
+              Jana <span className="text-brand-600">Address</span>
+            </span>
+          </a>
+          <Segmented<Tab>
+            className="order-last w-full sm:order-none sm:w-auto [&>button]:flex-1 [&>button]:justify-center sm:[&>button]:flex-none"
+            ariaLabel={t("appTitle")}
+            value={tab}
+            onChange={(k) => nav(k === "batch" ? (sid ? `#/s/${sid}` : "#/") : `#/${k}`)}
+            options={[
+              {
+                value: "batch",
+                label: t("navBatch"),
+                badge: sid ? (session.data?.summary.to_review ?? null) : null,
+              },
+              { value: "check", label: t("navCheck") },
+              { value: "demo", label: DEMO_TEXTS[language].nav },
+            ]}
+          />
+          <div className="ml-auto flex items-center gap-2">
+            <LangSwitcher />
+            {/* в рабочем состоянии статус не показываем: только загрузку и недоступность */}
+            {status !== "ok" && (
+              <span className="hidden h-8 animate-fade-in items-center gap-1.5 rounded-full border border-line bg-white px-3 text-xs text-ink-2 sm:inline-flex">
+                <span
+                  className={`h-2 w-2 rounded-full ${status === "down" ? "bg-danger" : "animate-pulse-dot bg-warn"}`}
+                />
+                <span>{status === "down" ? t("serviceUnavailable") : t("serviceLoading")}</span>
+              </span>
+            )}
           </div>
         </div>
       </header>
       {/* обе вкладки смонтированы, неактивная скрыта: переключение не теряет разбор, фильтры, выбор и черновик */}
-      <main className="mx-auto min-h-0 w-full max-w-[1600px] flex-1 p-4">
-        <div className={tab === "check" ? "" : "hidden"}>
-          <CheckOne threshold={threshold} />
-        </div>
-        <div className={tab === "batch" ? "h-full" : "hidden"}>
-          {sid ? (
-            <SessionView
-              key={sid}
-              sid={sid}
-              threshold={threshold}
-              active={tab === "batch"}
-              onBack={() => nav("#/")}
-            />
-          ) : (
-            <Upload onSession={(id) => nav(`#/s/${id}`)} />
-          )}
-        </div>
-      </main>
-      <footer className="border-t border-slate-200 px-4 py-1.5 text-center text-[11px] text-slate-500">
+      {/* прокручивается область между шапкой и футером, таблица пакета скроллится внутри себя */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <main className="mx-auto h-full w-full max-w-[1600px] p-4">
+          <div className={tab === "check" ? "animate-fade-in" : "hidden"}>
+            <CheckOne threshold={threshold} />
+          </div>
+          <div className={tab === "demo" ? "animate-fade-in" : "hidden"}>
+            <DemoPage threshold={threshold} active={tab === "demo"} />
+          </div>
+          <div className={tab === "batch" ? "h-full animate-fade-in" : "hidden"}>
+            {sid ? (
+              <SessionView
+                key={sid}
+                sid={sid}
+                threshold={threshold}
+                active={tab === "batch"}
+                onBack={() => nav("#/")}
+              />
+            ) : (
+              <Upload onSession={(id) => nav(`#/s/${id}`)} />
+            )}
+          </div>
+        </main>
+      </div>
+      <footer className="shrink-0 border-t border-line px-4 py-2 text-center text-[11px] text-ink-3">
         <a
           href="https://www.openstreetmap.org/copyright"
           target="_blank"
           rel="noreferrer"
-          className="hover:text-slate-700 hover:underline"
+          className="transition-colors hover:text-brand-700 hover:underline"
         >
           {t("osmAttribution")}
         </a>

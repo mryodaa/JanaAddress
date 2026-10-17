@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from jana_address.pipeline.base import ParseState
@@ -290,6 +292,44 @@ def test_confidence_orders_quality() -> None:
 def test_confidence_trace_has_parts() -> None:
     st = run_until("ул. Абая 10", "confidence")
     assert "parts" in st.trace[-1].changes
+
+
+def test_confidence_parts_sum_to_result() -> None:
+    for raw in ("г. Алматы, ул. Абая 10, кв 5", "Абая 10 зеленый забор синяя калитка", "Fkvfns ek f,fz 150 rd 5"):
+        st = run_until(raw, "confidence")
+        assert sum(st.trace[-1].changes["parts"].values()) == pytest.approx(st.confidence, abs=0.01)
+
+
+def test_confidence_penalty_not_swallowed_by_cap() -> None:
+    # логистическая модель: флаг с отрицательным весом снижает итог и у самой уверенной записи
+    from jana_address.pipeline.confidence import Confidence
+    from jana_address.rules_loader import get_rules
+
+    rules = get_rules()
+    neg = next(k for k, v in rules.confidence["flags"].items() if v < 0)
+
+    def unclipped(flags: set[str]) -> float:
+        st = run_until("г. Алматы, ул. Абая 10, кв 5", "confidence")
+        st.trace.pop()
+        st.flags |= flags
+        parts = Confidence(rules)(st).trace[-1].changes["parts"]
+        return float(sum(v for k, v in parts.items() if k != "cap"))
+
+    assert unclipped({neg}) < unclipped(set())
+
+
+def test_old_confidence_yaml_rejected(tmp_path: Path) -> None:
+    # старый линейный формат (base/bonus) молча дал бы всем ~0.5: падаем при загрузке
+    import shutil
+
+    from jana_address import config
+    from jana_address.rules_loader import load_rules
+
+    rules_dir = tmp_path / "rules"
+    shutil.copytree(config.RULES_DIR, rules_dir)
+    (rules_dir / "confidence.yaml").write_text("base: 0.3\nconsumed_ratio: 0.4\nbonus: {}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="intercept"):
+        load_rules(rules_dir)
 
 
 # ---------- parts: организации и корпуса; layout: английская раскладка ----------

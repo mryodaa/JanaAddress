@@ -380,12 +380,30 @@ export interface components {
         };
         /** Summary */
         Summary: {
-            /** Threshold */
+            /**
+             * Threshold
+             * @description порог этой сессии: сохраняется при загрузке, у старых сессий 0.6
+             */
             threshold: number;
             /** Uncertain */
             uncertain: number;
+            /**
+             * Confident
+             * @description записей с confidence не ниже порога
+             */
+            confident: number;
             /** Reviewed */
             reviewed: number;
+            /**
+             * Edited
+             * @description записей, где оператор исправил хотя бы одно поле
+             */
+            edited: number;
+            /**
+             * To Review
+             * @description неуверенных, ещё не проверенных и не исправленных (как фильтр uncertain)
+             */
+            to_review: number;
             /** Mean Confidence */
             mean_confidence: number | null;
             /**
@@ -393,6 +411,11 @@ export interface components {
              * @description 10 корзин confidence: [0-0.1), ..., [0.9-1.0]
              */
             histogram: number[];
+            /**
+             * Histogram Uncertain
+             * @description сколько в каждой корзине ниже порога
+             */
+            histogram_uncertain: number[];
             /**
              * Fill
              * @description сколько записей с непустым полем
@@ -675,6 +698,7 @@ export interface operations {
             query?: {
                 uncertain?: boolean;
                 reviewed?: boolean | null;
+                edited?: boolean | null;
                 q?: string;
                 offset?: number;
                 limit?: number;

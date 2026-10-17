@@ -363,6 +363,22 @@
       }
      },
      {
+      "name": "edited",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Edited"
+      }
+     },
+     {
       "name": "q",
       "in": "query",
       "required": false,
@@ -1301,15 +1317,31 @@
     "properties": {
      "threshold": {
       "type": "number",
-      "title": "Threshold"
+      "title": "Threshold",
+      "description": "порог этой сессии: сохраняется при загрузке, у старых сессий 0.6"
      },
      "uncertain": {
       "type": "integer",
       "title": "Uncertain"
      },
+     "confident": {
+      "type": "integer",
+      "title": "Confident",
+      "description": "записей с confidence не ниже порога"
+     },
      "reviewed": {
       "type": "integer",
       "title": "Reviewed"
+     },
+     "edited": {
+      "type": "integer",
+      "title": "Edited",
+      "description": "записей, где оператор исправил хотя бы одно поле"
+     },
+     "to_review": {
+      "type": "integer",
+      "title": "To Review",
+      "description": "неуверенных, ещё не проверенных и не исправленных (как фильтр uncertain)"
      },
      "mean_confidence": {
       "anyOf": [
@@ -1329,6 +1361,14 @@
       "type": "array",
       "title": "Histogram",
       "description": "10 корзин confidence: [0-0.1), ..., [0.9-1.0]"
+     },
+     "histogram_uncertain": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Histogram Uncertain",
+      "description": "сколько в каждой корзине ниже порога"
      },
      "fill": {
       "additionalProperties": {
@@ -1351,9 +1391,13 @@
     "required": [
      "threshold",
      "uncertain",
+     "confident",
      "reviewed",
+     "edited",
+     "to_review",
      "mean_confidence",
      "histogram",
+     "histogram_uncertain",
      "fill",
      "sources"
     ],

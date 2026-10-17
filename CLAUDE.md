@@ -25,7 +25,8 @@ cd frontend && npm run build && npx biome check src                             
 .venv/Scripts/python scripts/gen_train_tagger.py --n 150000 --seed 1001 --split train --out data/tagger/train.jsonl
 .venv-train/Scripts/python -m training.train --train data/tagger/train.jsonl --val data/tagger/val.jsonl --unseen data/tagger/unseen.jsonl --out training/runs/v2 --resume
 .venv-train/Scripts/python -m training.export --run training/runs/v2 --val data/tagger/val.jsonl --unseen data/tagger/unseen.jsonl --out models
-.venv/Scripts/python -m training.fit_arbiter --write          # веса арбитра и confidence, только dev
+.venv/Scripts/python -m training.fit_arbiter --write          # веса арбитра, только dev
+.venv/Scripts/python -m training.fit_confidence --write       # веса confidence (после арбитра), только dev; руками не править
 .venv/Scripts/python scripts/compare_modes.py --out docs/hybrid_results.md   # rules / tagger / hybrid на отложенных
 .venv/Scripts/python scripts/eval.py PRED.json GOLD.json --run hybrid        # разобрать эталон в режиме и оценить
 # почти реальный эталон (train.json не выдадут): data/realish/, компактная разметка -> JSON, проверка, сплит dev/holdout

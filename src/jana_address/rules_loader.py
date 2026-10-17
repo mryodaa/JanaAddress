@@ -98,6 +98,24 @@ def _read(path: Path) -> dict[str, Any]:
     return data
 
 
+CONFIDENCE_KEYS = {"intercept", "features", "flags"}
+
+
+def _check_confidence(conf: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Формат логистической модели. Файл старого формата (base/bonus/...) молча дал бы всем записям ~0.5."""
+    extra = set(conf) - CONFIDENCE_KEYS
+    if extra or not isinstance(conf.get("intercept"), int | float) or not isinstance(conf.get("features"), dict):
+        raise ValueError(
+            f"{path}: ожидается intercept + features (+ flags), лишние ключи: {sorted(extra)}; "
+            "веса пересобирает training/fit_confidence.py --write"
+        )
+    for sect in ("features", "flags"):
+        for k, v in (conf.get(sect) or {}).items():
+            if not isinstance(v, int | float):
+                raise ValueError(f"{path}: {sect}.{k} не число: {v!r}")
+    return conf
+
+
 def _flag_index(items: list[str]) -> PhraseIndex[bool]:
     idx: PhraseIndex[bool] = PhraseIndex()
     for it in items:
@@ -113,7 +131,7 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
     lm = _read(d / "landmarks.yaml")
     # сетевые бренды из объектов OSM (scripts/build_reference/gen_landmarks.py) дополняют ручной список
     lm_osm = _read(d / "landmarks_osm.yaml") if (d / "landmarks_osm.yaml").exists() else {}
-    conf = _read(d / "confidence.yaml")
+    conf = _check_confidence(_read(d / "confidence.yaml"), d / "confidence.yaml")
     arb = _read(d / "arbiter.yaml") if (d / "arbiter.yaml").exists() else {}
 
     street_types: PhraseIndex[StreetType] = PhraseIndex()
