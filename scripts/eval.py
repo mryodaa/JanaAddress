@@ -92,7 +92,10 @@ def align(pred: list[dict[str, Any]], gold: list[dict[str, Any]]) -> list[tuple[
     if len(set(map(str, gold_ids))) == len(gold_ids):
         by_id = {str(p.get("id")): p for p in pred}
         return [(by_id.get(str(g.get("id")), {}), g) for g in gold]
-    return list(zip(pred, gold, strict=False))
+    # id не уникальны: сопоставляем по порядку, длины обязаны совпадать (иначе хвост молча выпал бы из оценки)
+    if len(pred) != len(gold):
+        raise SystemExit(f"предсказаний {len(pred)}, эталон {len(gold)}: id не уникальны, по порядку не сопоставить")
+    return list(zip(pred, gold, strict=True))
 
 
 def evaluate(pred: list[dict[str, Any]], gold: list[dict[str, Any]], strict_fp: bool = False) -> dict[str, Any]:
@@ -195,10 +198,17 @@ def by_tag(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def pct(x: float) -> str:
+    """Доля в процентах; NaN (поля нет ни в одной записи) как n/a."""
+    return "  n/a " if x != x else f"{x * 100:5.1f}%"
+
+
+def delta(a: float, b: float) -> str:
+    return "" if a != a or b != b else f"{(b - a) * 100:+.1f}"
+
+
 def compare(base: dict[str, Any], new: dict[str, Any], top: int) -> None:
     """Что изменилось относительно прошлого прогона на том же эталоне."""
-    pct = lambda x: "  n/a " if x != x else f"{x * 100:5.1f}%"  # noqa: E731
-    delta = lambda a, b: "" if a != a or b != b else f"{(b - a) * 100:+.1f}"  # noqa: E731
     a, b = base["score"], new["score"]
     print(f"\nСравнение с базой: ИТОГ {pct(a)} -> {pct(b)} ({delta(a, b)})")
     for f in (*(f for _, fs in GROUPS.values() for f in fs), *EXTRA_FIELDS):
@@ -245,7 +255,6 @@ def calibration(items: list[tuple[float, bool]], bins: int = 10) -> dict[str, An
 
 
 def print_report(rep: dict[str, Any], top: int) -> None:
-    pct = lambda x: "  n/a " if x != x else f"{x * 100:5.1f}%"  # noqa: E731
     print(f"\nЗаписей: {rep['records']}")
     print(f"ИТОГ (пул по группе): {pct(rep['score'])}    вариант «среднее по полям»: {pct(rep['score_mean_variant'])}")
     for g, v in rep["groups"].items():

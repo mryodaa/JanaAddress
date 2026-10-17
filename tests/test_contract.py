@@ -88,3 +88,28 @@ def test_container_roundtrip(payload: str, kind: str) -> None:
     if kind == "object":
         src = json.loads(payload)
         assert set(json.loads(dumped).keys()) == set(src.keys())
+
+
+@pytest.mark.parametrize("jsonl", [False, True])
+def test_lone_surrogate_does_not_break_batch(jsonl: bool) -> None:
+    """json.loads пропускает одиночный суррогат; ответ всё равно должен закодироваться в UTF-8 целиком."""
+    recs = [r'{"id":"s","raw_address":"Абая \ud800 1"}', '{"id":"t","raw_address":"Абая 2"}']
+    payload = "\n".join(recs) if jsonl else "[" + ",".join(recs) + "]"
+    records, cont = io_format.loads(payload.encode("utf-8"))
+    results = engine.parse_many(records)
+    assert len(results) == 2
+    dumped = io_format.dumps(results, cont).encode("utf-8")
+    back = [json.loads(x) for x in dumped.splitlines()] if jsonl else json.loads(dumped)
+    assert [r["raw_address"] for r in back] == [r["raw_address"] for r in records]
+    # запись без суррогата по-прежнему пишется кириллицей, а не escape
+    assert "Абая 2".encode() in dumped
+
+
+def test_numeric_ids_round_trip_as_written() -> None:
+    """id жюри строковые, но число во входе тоже возвращается как написано: 1e3 не становится 1000.0."""
+    payload = (
+        b'[{"id": 1e3, "raw_address": "ul Abaya 1"}, {"id": 1.50, "raw_address": "x"}, {"id": 7, "raw_address": "y"}]'
+    )
+    records, cont = io_format.loads(payload)
+    out = io_format.dumps(engine.parse_many(records), cont)
+    assert '"id": 1e3' in out and '"id": 1.50' in out and '"id": 7' in out

@@ -22,6 +22,9 @@ COPY reference/reference.sqlite /app/reference/reference.sqlite
 # посимвольный теггер (int8 ONNX + meta, < 5 МБ); без него сервис работает на правилах
 COPY models /app/models
 COPY src /app/src
+# модель должна загружаться уже при сборке: иначе сервис молча ушёл бы на одни правила (метрика ниже)
+RUN python -c "from jana_address import config; from jana_address.tagger.runtime import load; \
+    assert load(config.TAGGER_MODEL, config.TAGGER_META) is not None, 'tagger failed to load'"
 
 RUN useradd --create-home --uid 10001 app && mkdir -p /app/var && chown app /app/var
 USER app

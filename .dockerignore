@@ -6,4 +6,5 @@
 !models/
 !src/
 src/**/__pycache__
+src/**/*.egg-info
 data/

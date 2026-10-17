@@ -23,11 +23,13 @@ class PhraseIndex[V]:
         self.max_words = 1
 
     def add(self, phrase: str, value: V) -> None:
-        for k in keys(phrase):
-            if not k:
-                continue
-            self._map.setdefault(k, value)
-            self.max_words = max(self.max_words, len(k.split(" ")))
+        # индекс только по fold фразы: транслит латинского алиаса («st» -> «ст», «str» -> «стр») совпадал с чужими
+        # кириллическими сокращениями (станция, строение); латинский ввод транслитерируется при поиске (get)
+        k = fold(phrase)
+        if not k:
+            return
+        self._map.setdefault(k, value)
+        self.max_words = max(self.max_words, len(k.split(" ")))
 
     def get(self, phrase: str) -> V | None:
         for k in keys(phrase):
@@ -94,8 +96,22 @@ class Rules:
 def _read(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    assert isinstance(data, dict), path
+    if not isinstance(data, dict):  # не assert: проверка нужна и под python -O
+        raise ValueError(f"{path}: ожидается словарь верхнего уровня")
+    _no_bool_items(data, path)
     return data
+
+
+def _no_bool_items(node: Any, path: Path, where: str = "") -> None:
+    """YAML 1.1 читает голые no/yes/on/off в списках как bool: слово «no» молча стало бы False («false» в шуме)."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            _no_bool_items(v, path, f"{where}.{k}" if where else str(k))
+    elif isinstance(node, list):
+        for item in node:
+            if isinstance(item, bool):
+                raise ValueError(f"{path}: в списке {where} значение {item!r}: слово нужно взять в кавычки")
+            _no_bool_items(item, path, where)
 
 
 CONFIDENCE_KEYS = {"intercept", "features", "flags"}
@@ -135,7 +151,8 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
     arb = _read(d / "arbiter.yaml") if (d / "arbiter.yaml").exists() else {}
 
     street_types: PhraseIndex[StreetType] = PhraseIndex()
-    for canonical, spec in st.items():
+    for canonical, spec_or_none in st.items():
+        spec = spec_or_none or {}  # тип без ключей в YAML (`бульвар:`) это None, а не пустой словарь
         t = StreetType(canonical=canonical, kind=spec.get("kind", "street"))
         street_types.add(canonical, t)
         for a in spec.get("aliases", []):

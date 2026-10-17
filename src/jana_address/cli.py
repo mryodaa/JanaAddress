@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--tagger",
         choices=["off", "shadow", "on", "only"],
-        help="режим теггера (по умолчанию JANA_TAGGER или shadow); only: поля только из модели, для оценки",
+        help="режим теггера (по умолчанию JANA_TAGGER или on); only: поля только из модели, для оценки",
     )
     args = ap.parse_args(argv)
     if args.tagger:
@@ -28,7 +28,18 @@ def main(argv: list[str] | None = None) -> int:
         engine.reset()
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
-    records, container = io_format.loads(args.input.read_bytes())
+    try:
+        records, container = io_format.loads(args.input.read_bytes())
+    except (OSError, UnicodeDecodeError, io_format.InputFormatError) as exc:
+        # понятное сообщение вместо трейса: файл не читается, не JSON/JSONL или не UTF-8/UTF-16/cp1251
+        print(f"не удалось прочитать {args.input}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        engine.get_pipeline()
+    except (OSError, ValueError) as exc:
+        # нет справочника или словари с ошибкой: это сборка, а не входные данные
+        print(f"сервис не собран: {exc}", file=sys.stderr)
+        return 3
     t0 = time.perf_counter()
     results = engine.parse_many(records, explain=args.explain)
     dt = time.perf_counter() - t0

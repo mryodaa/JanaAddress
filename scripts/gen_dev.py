@@ -44,7 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chaos", action="store_true", help="опечатки в названиях, мусор, телефоны, ФИО, перемешивание")
     ap.add_argument("--strong", action="store_true", help="искажения обучения теггера (synth/augment.py)")
     ap.add_argument("--split", choices=["all", "train", "unseen"], default="all", help="разбиение топонимов")
+    ap.add_argument("--force", action="store_true", help="перезаписать существующий --out")
     args = ap.parse_args(argv)
+    # по умолчанию --out это data/dev_synth.json: новый seed не должен молча затереть dev-набор
+    if args.out.exists() and not args.force:
+        ap.error(f"{args.out} уже есть: укажите другой --out или --force")
     rnd = random.Random(args.seed)
     b = Builder(Ref(args.db, args.split), rnd, chaos=args.chaos, strong=args.strong)
     recs = [b.record(i + 1) for i in range(args.n)]

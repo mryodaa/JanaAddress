@@ -1,19 +1,4 @@
 import type { FieldExplain, FieldName } from "../api/client";
-import type { Language } from "../i18n/types";
-
-export const FIELD_LABELS: Record<FieldName, string> = {
-  province: "Область",
-  city: "Город",
-  district: "Район",
-  living_area: "Жилой массив / ЖК",
-  street_type: "Тип улицы",
-  street_name: "Улица",
-  house: "Дом",
-  apartment: "Кв.",
-  entrance: "Подъезд",
-  floor: "Этаж",
-  landmark: "Ориентир",
-};
 
 // полные имена классов, чтобы Tailwind их нашёл при сборке
 export const FIELD_COLORS: Record<FieldName, { mark: string; dot: string }> = {
@@ -30,28 +15,23 @@ export const FIELD_COLORS: Record<FieldName, { mark: string; dot: string }> = {
   landmark: { mark: "bg-teal-100 text-teal-900 ring-teal-300", dot: "bg-teal-500" },
 };
 
-/** Как восстановлено поле по OSM: по дому, по улице, полигону, ближайшей точке, ориентиру. */
-const VIA_LABELS: Record<string, Record<Language, string>> = {
-  house: { ru: "дом", kk: "үй", en: "house" },
-  street: { ru: "улица", kk: "көше", en: "street" },
-  polygon: { ru: "полигон", kk: "полигон", en: "polygon" },
-  point: { ru: "точка", kk: "нүкте", en: "point" },
-  poi: { ru: "ориентир", kk: "бағдар", en: "landmark" },
-};
+/**
+ * Строка как массив кодпоинтов. Спаны сервера считаются в символах Python (кодпоинтах), а индексы строки JS в
+ * UTF-16: после эмодзи или другого символа вне BMP подсветка по raw[i] съехала бы.
+ */
+export function codepoints(s: string): string[] {
+  return Array.from(s);
+}
 
-export function sourceLabel(source: string | null | undefined, lang: Language = "ru"): string | null {
-  if (!source || source === "string") return null;
-  if (source === "manual") {
-    if (lang === "kk") return "өңдеу";
-    if (lang === "en") return "edit";
-    return "правка";
+/** indexOf по кодпоинтам: позиция подстроки part в cps или -1. */
+export function cpIndexOf(cps: string[], part: string): number {
+  const p = codepoints(part);
+  if (!p.length) return -1;
+  outer: for (let i = 0; i + p.length <= cps.length; i++) {
+    for (let j = 0; j < p.length; j++) if (cps[i + j] !== p[j]) continue outer;
+    return i;
   }
-  // reference:osm:house | reference:osm:street | reference:osm:polygon | reference:osm:point | reference:osm:poi,
-  // reference:seed, reference:kato
-  const [, s, via] = source.split(":");
-  const prefix = lang === "kk" ? "анықтамалық" : lang === "en" ? "reference" : "справочник";
-  const how = via ? (VIA_LABELS[via]?.[lang] ?? via) : null;
-  return [prefix, s?.toUpperCase(), how].filter(Boolean).join(" · ");
+  return -1;
 }
 
 export interface Piece {
@@ -61,7 +41,8 @@ export interface Piece {
 
 /** Разбивает raw_address на куски по спанам полей (спаны в символах оригинала). */
 export function highlight(raw: string, fields: Partial<Record<string, FieldExplain>>): Piece[] {
-  const owner: (FieldName | null)[] = Array.from({ length: raw.length }, () => null);
+  const cps = codepoints(raw);
+  const owner: (FieldName | null)[] = Array.from({ length: cps.length }, () => null);
   // порядок важен: более конкретные поля поверх общих
   const order: FieldName[] = [
     "landmark",
@@ -80,14 +61,14 @@ export function highlight(raw: string, fields: Partial<Record<string, FieldExpla
     const fe = fields[f];
     if (!fe?.span || fe.source !== "string") continue;
     const [s, e] = fe.span;
-    for (let i = s; i < e && i < raw.length; i++) owner[i] = f;
+    for (let i = s; i < e && i < cps.length; i++) owner[i] = f;
   }
   const pieces: Piece[] = [];
-  for (let i = 0; i < raw.length; i++) {
+  for (let i = 0; i < cps.length; i++) {
     const f = owner[i] ?? null;
     const last = pieces[pieces.length - 1];
-    if (last && last.field === f) last.text += raw[i];
-    else pieces.push({ text: raw[i] ?? "", field: f });
+    if (last && last.field === f) last.text += cps[i];
+    else pieces.push({ text: cps[i] ?? "", field: f });
   }
   return pieces;
 }

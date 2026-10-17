@@ -8,7 +8,6 @@ export default defineConfig({
   build: {
     outDir: "../src/jana_address/static",
     emptyOutDir: true,
-    chunkSizeWarningLimit: 800,
   },
   server: {
     proxy: { "/api": "http://127.0.0.1:8000" },

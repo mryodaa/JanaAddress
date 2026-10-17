@@ -14,7 +14,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
     "rapidfuzz>=3.9",
+    # теггер: без них tagger.load() вернёт None и сервис тихо уйдёт на одни правила (метрика ниже)
+    "numpy>=2.0",
+    "onnxruntime>=1.18",
 ]
+# точные версии рантайма (как в образе): requirements.txt, ставится `pip install -r requirements.txt`
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11", "types-PyYAML"]

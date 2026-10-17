@@ -71,6 +71,21 @@ class Cand:
         }
 
 
+class _Lookups:
+    """Запросы к справочнику в пределах одной записи: перебор комбинаций спорных полей повторяет одни и те же
+    проверки (до 2^8 раз). Кэш живёт один вызов арбитра, между записями ничего не хранится."""
+
+    def __init__(self, store: Store) -> None:
+        self._store = store
+        self._memo: dict[tuple[Any, ...], Any] = {}
+
+    def __call__(self, method: str, *args: Any) -> Any:
+        key = (method, *args)
+        if key not in self._memo:
+            self._memo[key] = getattr(self._store, method)(*args)
+        return self._memo[key]
+
+
 class Arbiter:
     name = "arbiter"
 
@@ -97,7 +112,6 @@ class Arbiter:
         self.noise_p = float(cfg.get("noise_p", 0.8))
         self.max_disputed = int(cfg.get("max_disputed", 8))
         self.hard_veto = set(cfg.get("hard_veto", ["grammar_bad", "marker_only"]))
-        self._raw = ""  # строка текущей записи (для проверок по соседству спана)
 
     def _get(self, table: dict[str, Any], f: str) -> float:
         return float(table.get(f, table.get("default", 0.0)))
@@ -217,7 +231,9 @@ class Arbiter:
         return out
 
     # ---------- проверки ----------
-    def _checks(self, c: Cand, ctx: dict[str, Cand], pred: Prediction | None) -> dict[str, float]:
+    def _checks(
+        self, c: Cand, ctx: dict[str, Cand], pred: Prediction | None, raw: str, look: _Lookups
+    ) -> dict[str, float]:
         w, f, v = self.w, c.fname, c.value
         out: dict[str, float] = {}
         city = ctx.get("city")
@@ -228,7 +244,7 @@ class Arbiter:
             # одноимённые сёла: берём то, где есть улица записи, иначе то, что в области записи
             st, typ = ctx.get("street_name"), ctx.get("street_type")
             with_street = (
-                [a for a in c.alts if self.store.streets(st.value, a.id)]
+                [a for a in c.alts if look("streets", st.value, a.id)]
                 if st is not None and (typ is None or typ.value not in AREA_TYPES)
                 else []
             )
@@ -255,29 +271,29 @@ class Arbiter:
             if f == "city":
                 st, typ = ctx.get("street_name"), ctx.get("street_type")
                 area = typ is not None and typ.value in AREA_TYPES
-                if st is not None and not area and self.store.streets(st.value, e.id):
+                if st is not None and not area and look("streets", st.value, e.id):
                     out["street_in_city"] = w.get("street_in_city", 0.0)
                 if (
                     e.kind in ("republican", "city")
                     and c.span is not None
-                    and _CITY_HEAD.match(self._raw[: c.span[0]])
-                    and _WORD_NEXT.match(self._raw[c.span[1] :])
+                    and _CITY_HEAD.match(raw[: c.span[0]])
+                    and _WORD_NEXT.match(raw[c.span[1] :])
                 ):
                     out["city_status"] = w.get("city_status", 0.0)
         elif f == "street_name":
             area = ctx.get("street_type") is not None and ctx["street_type"].value in AREA_TYPES
             cid = city_e.id if city_e else None
             if not area and cid is not None:
-                streets = self.store.streets(v, cid)
+                streets = look("streets", v, cid)
                 if streets:
                     out["street_in_city"] = w.get("street_in_city", 0.0)
                     h = ctx.get("house")
-                    if h is not None and any(self.store.house(s.id, h.value) for s in streets):
+                    if h is not None and any(look("house", s.id, h.value) for s in streets):
                         out["house_on_street"] = w.get("house_on_street", 0.0)
-                elif self.store.street_fuzzy(v, cid):
+                elif look("street_fuzzy", v, cid):
                     out["street_fuzzy"] = w.get("street_fuzzy", 0.0)
             elif area:
-                found = self.store.lookup(v, ("living_area",))
+                found = look("lookup", v, ("living_area",))
                 if found and cid is not None and any(a.city_id == cid for a in found):
                     out["area_in_city"] = w.get("area_in_city", 0.0)
             if _PHONE_LIKE.search(v) or (not re.search(r"[^\W\d_]", v) and not area):
@@ -285,7 +301,7 @@ class Arbiter:
             if self._marker_only(v):
                 out["marker_only"] = w.get("marker_only", 0.0)
         elif f == "living_area":
-            found = self.store.lookup(v, ("living_area",))
+            found = look("lookup", v, ("living_area",))
             if found and city_e is not None and any(a.city_id == city_e.id for a in found):
                 out["area_in_city"] = w.get("area_in_city", 0.0)
         elif f in ("house", "apartment", "entrance", "floor"):
@@ -296,7 +312,7 @@ class Arbiter:
                 and ok
                 and city_e is not None
                 and "street_name" in ctx
-                and any(self.store.house(s.id, v) for s in self.store.streets(ctx["street_name"].value, city_e.id))
+                and any(look("house", s.id, v) for s in look("streets", ctx["street_name"].value, city_e.id))
             ):
                 out["house_on_street"] = w.get("house_on_street", 0.0)
         elif f == "landmark" and self._marker_only(v):
@@ -323,8 +339,8 @@ class Arbiter:
         r = self.rules
         return v in r.street_types or v in r.details or v in r.noise or v in r.city_prefix or v in r.province_markers
 
-    def _score(self, c: Cand, ctx: dict[str, Cand], pred: Prediction | None) -> float:
-        c.checks = self._checks(c, ctx, pred)
+    def _score(self, c: Cand, ctx: dict[str, Cand], pred: Prediction | None, raw: str, look: _Lookups) -> float:
+        c.checks = self._checks(c, ctx, pred, raw, look)
         c.score = float(self.prior.get(c.source, 0.0)) + self.w_p[c.source] * c.p + sum(c.checks.values())
         return c.score
 
@@ -332,13 +348,13 @@ class Arbiter:
     def __call__(self, state: ParseState) -> ParseState:
         tr = StepTrace(step=self.name)
         pred = state.model
-        self._raw = state.raw
         if pred is None:
             tr.notes.append("нет разметки модели: поля правил без изменений")
             state.trace.append(tr)
             return state
         rules = self._rules_cands(state)
         model = self._model_cands(state, pred, rules)
+        look = _Lookups(self.store)
         if self.mode == "only":
             self._apply_only(state, model, tr)
             state.trace.append(tr)
@@ -362,11 +378,11 @@ class Arbiter:
 
         choice = {f: rules.get(f) for f in disputed}
         if disputed and len(disputed) <= self.max_disputed:
-            choice = self._solve(state, rules, options, agree, pred)
+            choice = self._solve(state, rules, options, agree, pred, look)
         # счёт всех кандидатов в контексте итогового решения: для trace и для training/fit_arbiter.py
         final = {f: c for f, c in rules.items() if f not in choice} | {f: c for f, c in choice.items() if c}
         for c in (*rules.values(), *model.values()):
-            self._score(c, final, pred)
+            self._score(c, final, pred, state.raw, look)
         decisions: dict[str, Any] = {}
         changed = []
         for f in PARSED_FIELDS:
@@ -425,6 +441,7 @@ class Arbiter:
         options: dict[str, list[Cand]],
         agree: list[str],
         pred: Prediction,
+        look: _Lookups,
     ) -> dict[str, Cand | None]:
         """Перебор комбинаций спорных полей: максимум суммы счётов без пересечения спанов разных полей."""
         fixed = {f: rules[f] for f in rules if f not in options}  # согласованные и «только правила»
@@ -441,7 +458,7 @@ class Arbiter:
                 if c is None:
                     total += self._get(self.accept, f)  # порог: модель должна набрать больше
                     continue
-                s = self._score(c, ctx, pred)
+                s = self._score(c, ctx, pred, state.raw, look)
                 only_model = c.source == "model" and f not in rules
                 if c.source == "model" and (
                     self.hard_veto & set(c.checks)
@@ -461,7 +478,7 @@ class Arbiter:
         for f in names:
             for c in options[f]:
                 if c is not None:
-                    self._score(c, ctx, pred)
+                    self._score(c, ctx, pred, state.raw, look)
         return dict(zip(names, best[2], strict=True))
 
     def _covered(self, raw: str, rules: dict[str, Cand], ctx: dict[str, Cand], pred: Prediction) -> bool:

@@ -2,7 +2,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type ExplainRecord, api } from "../../api/client";
 import { useI18n } from "../../i18n";
+import { errorText } from "../../lib/errors";
 import { visible } from "../../lib/fields";
+import { isModalOpen, typingIn, useWindowKey } from "../../lib/keys";
 import { prefersReducedMotion } from "../../lib/motion";
 import { IconAlert, IconCheck, IconChevronRight } from "../icons";
 import { Button, TextInput } from "../ui";
@@ -12,6 +14,7 @@ import { derive, ticksOf } from "./derive";
 import { DEMO_TEXTS, type StageId, fmt } from "./texts";
 
 const STAGES: StageId[] = [
+  "input",
   "clean",
   "tokens",
   "bilingual",
@@ -20,6 +23,7 @@ const STAGES: StageId[] = [
   "arbiter",
   "reference",
   "confidence",
+  "output",
 ];
 // темп демонстрации, не реального разбора: один «тик» анимации при скорости 1×
 const TICK_MS = 750;
@@ -63,6 +67,9 @@ const ICON_PATH: Record<StageId, ReactNode> = {
     </>
   ),
   confidence: <path d="M4 16a8 8 0 1 1 16 0M12 16l4-5M3 20h18" />,
+  // фигурные скобки JSON со стрелкой внутрь и наружу
+  input: <path d="M8 4C6 4 5 5 5 7v2c0 1.5-1 3-2 3 1 0 2 1.5 2 3v2c0 2 1 3 3 3M13 12h8M18 9l3 3-3 3" />,
+  output: <path d="M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2 3-1 0-2 1.5-2 3v2c0 2-1 3-3 3M3 12h8M8 9l3 3-3 3" />,
 };
 
 function StageIcon({ id, className = "h-5 w-5" }: { id: StageId; className?: string }) {
@@ -83,7 +90,7 @@ function StageIcon({ id, className = "h-5 w-5" }: { id: StageId; className?: str
 }
 
 export function DemoPage({ threshold, active }: { threshold: number; active: boolean }) {
-  const { language } = useI18n();
+  const { t, language } = useI18n();
   const tx = DEMO_TEXTS[language];
   const [text, setText] = useState(EXAMPLES[0] ?? "");
   const [r, setR] = useState<ExplainRecord | null>(null);
@@ -99,13 +106,25 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
       return !v;
     });
   const top = useRef<HTMLDivElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  // 10 этапов не помещаются в строку: текущий этап всегда виден, навигация прокручивается к нему сама
+  // (только по горизонтали, страница не дёргается)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: phase нужен, навигация появляется только при показе
+  useEffect(() => {
+    const box = nav.current;
+    const el = box?.querySelector<HTMLElement>(`[data-stage="${stage}"]`);
+    if (!box || !el) return;
+    const left = el.offsetLeft - box.clientWidth / 2 + el.offsetWidth / 2;
+    box.scrollTo({ left, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }, [stage, phase]);
 
   const health = useQuery({ queryKey: ["health"], queryFn: api.health });
+  const f1 = health.data?.tagger?.metrics?.unseen_span_f1;
   const h: HealthInfo = {
     counts: health.data?.reference?.counts,
-    houses: health.data?.reference?.houses,
-    f1: health.data?.tagger?.metrics?.unseen_span_f1,
-    version: health.data?.tagger?.version,
+    houses: health.data?.reference?.houses ?? undefined,
+    f1: typeof f1 === "number" ? f1 : undefined,
+    version: health.data?.tagger?.version ?? undefined,
   };
 
   const d = useMemo(() => (r ? derive(r) : null), [r]);
@@ -113,13 +132,21 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
   const id = STAGES[stage] ?? "clean";
   const maxTick = ticks?.[id] ?? 1;
 
+  // показываем ответ только на последний запрошенный адрес: быстрый клик по двум примерам не должен
+  // показать первый, если он пришёл позже второго
+  const wanted = useRef("");
   const parse = useMutation({
     mutationFn: api.parseOne,
-    onSuccess: (res) => {
+    onSuccess: (res, q) => {
+      if (q !== wanted.current) return;
       setR(res);
       start();
     },
   });
+  const run = (q: string) => {
+    wanted.current = q;
+    parse.mutate(q);
+  };
 
   // ссылка «Как это разобрано» со страницы проверки: #/demo?q=<адрес> подставляет адрес и сразу запускает показ
   const runFromHash = useRef<() => void>(() => undefined);
@@ -128,10 +155,15 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
     if (!m) return;
     // убираем q из адреса: перезагрузка страницы не должна снова запускать показ
     window.history.replaceState(null, "", "#/demo");
-    const q = decodeURIComponent(m[1] ?? "");
+    let q = "";
+    try {
+      q = decodeURIComponent(m[1] ?? "");
+    } catch {
+      return; // битая ссылка (%E0 и т. п.): просто открываем демо без запуска
+    }
     if (!q.trim()) return;
     setText(q);
-    parse.mutate(q);
+    run(q);
   };
   useEffect(() => {
     const on = () => runFromHash.current();
@@ -142,7 +174,8 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
 
   // сцена встаёт на место строки ввода: страница не прокручивается и не прыгает
   function toTop() {
-    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    const behavior = prefersReducedMotion() ? "auto" : "smooth";
+    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior, block: "start" }));
   }
 
   function start() {
@@ -172,25 +205,26 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
 
   // таймер демонстрации: тики внутри этапа, на последнем тике пауза подольше, потом следующий этап.
   // Без автоперехода этап доигрывает анимацию и ждёт «дальше»
+  // на скрытой вкладке показ стоит на месте и продолжается, когда к нему вернутся
   const waiting = phase === "play" && playing && !autoNext && tick >= maxTick;
+  const goNext = useRef<() => void>(() => undefined);
+  goNext.current = () => goStage(stage + 1);
   useEffect(() => {
-    if (phase !== "play" || !playing || waiting) return;
+    if (!active || phase !== "play" || !playing || waiting) return;
     const reduced = prefersReducedMotion();
     const hold = tick >= maxTick;
     const ms = (TICK_MS / speed) * (hold ? 2.2 : reduced ? 0.4 : 1);
     const timer = setTimeout(() => {
       if (!hold) setTick(reduced ? maxTick : tick + 1);
-      else goStage(stage + 1);
+      else goNext.current();
     }, ms);
     return () => clearTimeout(timer);
-  });
+  }, [active, phase, playing, waiting, tick, maxTick, speed]);
 
   // пробел пауза, стрелки по этапам; не мешаем вводу
-  useEffect(() => {
-    if (!active || phase !== "play") return;
-    const on = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return;
+  useWindowKey(
+    (e) => {
+      if (typingIn(e) || isModalOpen()) return;
       if (e.key === " ") {
         e.preventDefault();
         setPlaying((p) => !p);
@@ -198,10 +232,9 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
       else if (e.key === "ArrowRight") goStage(stage + 1);
       else if (e.key === "ArrowLeft") goStage(stage - 1);
       else if (e.key === "Escape") finish();
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  });
+    },
+    active && phase === "play",
+  );
 
   const progress = (stage + Math.min(1, tick / Math.max(1, maxTick))) / STAGES.length;
   const st = tx.stages[id];
@@ -223,7 +256,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
               className="mt-6 flex flex-col gap-2 sm:flex-row"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (text.trim()) parse.mutate(text);
+                if (text.trim()) run(text);
               }}
             >
               <TextInput
@@ -252,7 +285,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
                   key={ex}
                   onClick={() => {
                     setText(ex);
-                    parse.mutate(ex);
+                    run(ex);
                   }}
                   className={`max-w-full truncate rounded-full border px-3 py-1 text-xs transition duration-150 active:scale-95 ${
                     ex === text
@@ -266,7 +299,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
             </div>
             {parse.error && (
               <div className="mt-3 inline-flex items-center gap-2 rounded-xl bg-danger-50 px-3 py-2 text-sm text-danger">
-                <IconAlert className="h-4 w-4" /> {parse.error.message}
+                <IconAlert className="h-4 w-4" /> {errorText(parse.error, t, language)}
               </div>
             )}
           </div>
@@ -283,7 +316,10 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
             />
           </div>
           <AddressBar raw={d.raw} label={tx.another} onBack={reset} />
-          <nav className="flex gap-1 overflow-x-auto border-t border-line-soft px-3 py-3 [scrollbar-width:none] sm:px-5">
+          <nav
+            ref={nav}
+            className="flex gap-1 overflow-x-auto border-t border-line-soft px-3 py-3 [scrollbar-width:none] sm:px-5"
+          >
             {STAGES.map((s, i) => {
               const done = i < stage;
               const cur = i === stage;
@@ -291,6 +327,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
                 <button
                   key={s}
                   type="button"
+                  data-stage={i}
                   onClick={() => goStage(i)}
                   className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition duration-300 ${
                     cur

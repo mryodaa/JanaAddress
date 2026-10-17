@@ -19,14 +19,17 @@ def get_pipeline() -> Pipeline:
         with _lock:
             if _pipeline is None:
                 t0 = time.perf_counter()
-                _pipeline = Pipeline()
-                _info["load_seconds"] = round(time.perf_counter() - t0, 3)
+                pipe = Pipeline()
+                info: dict[str, Any] = {"load_seconds": round(time.perf_counter() - t0, 3)}
                 from .reference import store
 
-                _info["reference"] = store.get_store().stats() if store.is_available() else None
+                info["reference"] = store.get_store().stats() if store.is_available() else None
                 from .pipeline import tagger
 
-                _info["tagger"] = tagger.info()
+                info["tagger"] = tagger.info()
+                # пайплайн публикуется последним: health не должен сказать «готов» с пустым info
+                _info.update(info)
+                _pipeline = pipe
     return _pipeline
 
 

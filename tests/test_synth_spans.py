@@ -15,7 +15,11 @@ from jana_address import config
 from jana_address.pipeline.util import tidy_value
 
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = pytest.mark.skipif(not config.SYNTH_DB.exists(), reason="нет снапшота справочника синтетики")
+pytestmark = pytest.mark.skipif(
+    not config.SYNTH_DB.exists(),
+    reason=f"нет {config.SYNTH_DB.name} (снапшот справочника для синтетики, не в git): "
+    "скопировать reference/reference.sqlite той версии, на которой строились dev-наборы",
+)
 
 
 def test_ltext_ops() -> None:

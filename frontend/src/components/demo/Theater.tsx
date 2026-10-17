@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { FIELD_NAMES, type FieldName } from "../../api/client";
 import { useI18n } from "../../i18n";
-import { FIELD_COLORS, visible } from "../../lib/fields";
-import { IconCheck } from "../icons";
+import { clampTo, sigmoid } from "../../lib/confidence";
+import { FIELD_COLORS, codepoints, cpIndexOf, visible } from "../../lib/fields";
+import { IconCheck, IconDatabase } from "../icons";
 import { Hint } from "../ui";
 import type { Derived } from "./derive";
-import { type DemoTexts, type StageId, fmt } from "./texts";
+import { type DemoTexts, type StageId, confPartLabel, fmt } from "./texts";
 
 export interface HealthInfo {
   counts?: Record<string, number>;
@@ -40,19 +41,20 @@ function Line({
   strike?: [number, number][];
   className?: string;
 }) {
-  const owner = Array.from({ length: raw.length }, () => -1);
+  const cps = codepoints(raw);
+  const owner = Array.from({ length: cps.length }, () => -1);
   marks.forEach((m, mi) => {
-    for (let i = m.start; i < m.end && i < raw.length; i++) owner[i] = mi;
+    for (let i = m.start; i < m.end && i < cps.length; i++) owner[i] = mi;
   });
   const inRange = (i: number, rs: [number, number][]) => rs.some(([a, b]) => i >= a && i < b);
   const pieces: { text: string; mi: number; dim: boolean; strike: boolean }[] = [];
-  for (let i = 0; i < raw.length; i++) {
+  for (let i = 0; i < cps.length; i++) {
     const mi = owner[i] ?? -1;
     const d = inRange(i, dim);
     const s = inRange(i, strike);
     const last = pieces[pieces.length - 1];
-    if (last && last.mi === mi && last.dim === d && last.strike === s) last.text += raw[i];
-    else pieces.push({ text: raw[i] ?? "", mi, dim: d, strike: s });
+    if (last && last.mi === mi && last.dim === d && last.strike === s) last.text += cps[i];
+    else pieces.push({ text: cps[i] ?? "", mi, dim: d, strike: s });
   }
   return (
     <div className={`whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl ${className}`}>
@@ -84,8 +86,8 @@ function Caption({ children }: { children: ReactNode }) {
 
 function findSpan(raw: string, part: string): [number, number] | null {
   if (!part) return null;
-  const i = raw.indexOf(part);
-  return i >= 0 ? [i, i + part.length] : null;
+  const i = cpIndexOf(codepoints(raw), part);
+  return i >= 0 ? [i, i + codepoints(part).length] : null;
 }
 
 function CleanStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }) {
@@ -251,7 +253,7 @@ function Slots({ values, fresh }: { values: Partial<Record<FieldName, string>>; 
             </span>
             <span
               key={v ?? "-"}
-              className={`truncate font-medium ${v ? "text-ink" : "text-ink-3/50"} ${fresh === f ? "animate-scale-in" : ""}`}
+              className={`truncate font-medium ${v ? "text-ink" : "text-ink-3"} ${fresh === f ? "animate-scale-in" : ""}`}
             >
               {v ?? "—"}
             </span>
@@ -313,15 +315,16 @@ function TaggerStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
     );
   }
   const SWEEP = 5;
-  const pos = Math.round((Math.min(tick, SWEEP) / SWEEP) * d.raw.length);
-  const label = Array.from({ length: d.raw.length }, () => null as (typeof d.spans)[number] | null);
-  for (const s of d.spans) for (let i = s.start; i < s.end && i < d.raw.length; i++) label[i] = s;
+  const cps = codepoints(d.raw);
+  const pos = Math.round((Math.min(tick, SWEEP) / SWEEP) * cps.length);
+  const label = Array.from({ length: cps.length }, () => null as (typeof d.spans)[number] | null);
+  for (const s of d.spans) for (let i = s.start; i < s.end && i < cps.length; i++) label[i] = s;
   const listed = d.spans.slice(0, Math.max(0, tick - SWEEP));
   return (
     <div>
       <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-3">{tx.taggerSweep}</div>
       <div className="relative flex flex-wrap gap-[3px] font-mono text-lg">
-        {[...d.raw].map((c, i) => {
+        {cps.map((c, i) => {
           const s = label[i];
           const done = i < pos;
           const begin = s && s.start === i;
@@ -334,7 +337,7 @@ function TaggerStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
                   ? `${markCls(s.field, s.label)} ring-1 ring-inset`
                   : done
                     ? "bg-canvas text-ink-3"
-                    : "bg-canvas text-ink-3/60"
+                    : "bg-canvas text-ink-3"
               } ${i === pos ? "ring-2 ring-brand-500" : ""}`}
             >
               {c === " " ? "␣" : visible(c)}
@@ -363,7 +366,7 @@ function TaggerStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
                 <span className={`rounded px-1.5 text-xs ring-1 ring-inset ${markCls(s.field, s.label)}`}>
                   {s.field ? fieldLabels[s.field] : s.label === "KZ_DUP" ? tx.kzDupLabel : tx.noiseLabel}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-ink">{d.raw.slice(s.start, s.end)}</span>
+                <span className="min-w-0 flex-1 truncate text-ink">{cps.slice(s.start, s.end).join("")}</span>
                 <span className="h-1.5 w-16 overflow-hidden rounded-full bg-line-soft">
                   <span
                     className="block h-full origin-left animate-grow-x rounded-full bg-brand-500"
@@ -399,7 +402,7 @@ function ArbiterStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts
         {c.value || "—"} <span className="font-mono text-[10px] text-ink-3">{c.score.toFixed(2)}</span>
       </span>
     ) : (
-      <span className="text-ink-3/50">—</span>
+      <span className="text-ink-3">—</span>
     );
   return (
     <div className="overflow-hidden rounded-xl ring-1 ring-line">
@@ -452,17 +455,7 @@ function ReferenceStage({
           {tick < Math.max(1, d.reference.length + 1) && (
             <span className="absolute inset-0 animate-ping rounded-xl bg-brand-200" />
           )}
-          <svg
-            viewBox="0 0 24 24"
-            className="h-6 w-6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            aria-hidden="true"
-          >
-            <ellipse cx="12" cy="5.5" rx="7" ry="2.5" />
-            <path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5" />
-          </svg>
+          <IconDatabase className="h-6 w-6" />
         </div>
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-3">
           {tx.refStats}
@@ -501,7 +494,7 @@ function ReferenceStage({
                   <span className={`h-2 w-2 rounded-full ${FIELD_COLORS[e.field].dot}`} />
                   {fieldLabels[e.field]}
                 </span>
-                <span className="text-ink-3/60">←</span>
+                <span className="text-ink-3">←</span>
                 <span className="text-lg font-semibold text-ink">{e.value}</span>
                 <span className="ml-auto rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800">
                   {tx.refSources[e.source] ?? e.source}
@@ -544,6 +537,55 @@ function Gauge({ value, size = 160 }: { value: number; size?: number }) {
 }
 
 function ConfidenceStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }) {
+  const m = d.conf;
+  if (!m) return <ConfidenceStageParts d={d} tick={tick} tx={tx} />;
+  // база, затем признаки по силе влияния; стрелка показывает, как растёт сумма баллов и процент
+  const terms = [...m.terms].sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
+  const rows = [{ key: "base", label: tx.cx.base, points: m.intercept }].concat(
+    terms.map((x) => ({ key: x.key, label: confPartLabel(tx.confParts, x.key), points: x.points })),
+  );
+  const shown = rows.slice(0, tick);
+  const z = shown.reduce((a, r) => a + r.points, 0);
+  const final = tick > rows.length;
+  const value = final ? m.p : shown.length ? clampTo(sigmoid(z), m.bounds) : 0;
+  return (
+    <div className="grid items-center gap-8 sm:grid-cols-[180px_minmax(0,1fr)]">
+      <div className="relative grid place-items-center">
+        <Gauge value={value} size={170} />
+        <div className="absolute text-center">
+          <div className="text-4xl font-semibold tabular-nums text-ink">{Math.round(value * 100)}%</div>
+          <div className="font-mono text-xs tabular-nums text-ink-3">
+            {tx.cx.sum}: {z.toFixed(2)}
+          </div>
+          {final && <div className="animate-fade-in text-xs text-ink-3">{tx.confFinal}</div>}
+        </div>
+      </div>
+      <div className="grid gap-1.5">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-3">
+          {tx.confTitle}
+          <Hint text={tx.cx.how} label={tx.hintLabel} />
+        </div>
+        {shown.map((r) => (
+          <div
+            key={r.key}
+            className="flex animate-fade-up items-center gap-3 rounded-lg bg-canvas px-3 py-1.5 text-sm"
+          >
+            <span className="min-w-0 flex-1 truncate text-ink">{r.label}</span>
+            <span
+              className={`font-mono text-xs font-semibold tabular-nums ${r.points >= 0 ? "text-brand-700" : "text-danger"}`}
+            >
+              {r.points >= 0 ? "+" : "−"}
+              {Math.abs(r.points).toFixed(2)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Старые ответы без слагаемых: вклады в проценты, как раньше. */
+function ConfidenceStageParts({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }) {
   const shown = d.parts.slice(0, tick);
   const sum = shown.reduce((a, [, v]) => a + v, 0);
   const final = tick > d.parts.length;
@@ -567,9 +609,7 @@ function ConfidenceStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTe
             key={k}
             className="flex animate-fade-up items-center gap-3 rounded-lg bg-canvas px-3 py-1.5 text-sm"
           >
-            <span className="min-w-0 flex-1 truncate text-ink">
-              {tx.confParts[k] ?? k.replace(/^(flag|bonus):/, "").replace(/_/g, " ")}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-ink">{confPartLabel(tx.confParts, k)}</span>
             <span
               className={`font-mono text-xs font-semibold tabular-nums ${v >= 0 ? "text-brand-700" : "text-danger"}`}
             >
@@ -583,6 +623,96 @@ function ConfidenceStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTe
   );
 }
 
+/** JSON построчно: ключи приглушены, строки зелёные, числа синие, null серый; строки появляются по тику. */
+function JsonView({
+  lines,
+  shown,
+  tags,
+  label,
+}: {
+  lines: { key: string; value: string | number | null; tag?: ReactNode }[];
+  shown: number;
+  tags?: boolean;
+  label: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-ink ring-1 ring-ink/10">
+      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2 font-mono text-[11px] text-white/50">
+        <span className="h-2 w-2 rounded-full bg-brand-500" />
+        {label}
+      </div>
+      <div className="overflow-x-auto px-4 py-3 font-mono text-[13px] leading-[22px]">
+        <div className="text-white/60">{"{"}</div>
+        {lines.slice(0, shown).map((l, i) => (
+          <div key={l.key} className="flex animate-fade-up items-baseline gap-3 pl-5">
+            <span className="min-w-0 whitespace-pre-wrap break-all">
+              <span className="text-sky-300">"{l.key}"</span>
+              <span className="text-white/50">: </span>
+              {l.value == null ? (
+                <span className="text-white/40">null</span>
+              ) : typeof l.value === "number" ? (
+                <span className="text-amber-300">{l.value}</span>
+              ) : (
+                <span className="text-emerald-300">{JSON.stringify(visible(l.value))}</span>
+              )}
+              {i < lines.length - 1 && <span className="text-white/50">,</span>}
+            </span>
+            {tags && l.tag}
+          </div>
+        ))}
+        {shown >= lines.length && <div className="animate-fade-in text-white/60">{"}"}</div>}
+      </div>
+    </div>
+  );
+}
+
+function InputStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }) {
+  const lines = [
+    { key: "id", value: d.id },
+    { key: "raw_address", value: d.raw },
+  ];
+  return (
+    <div>
+      <JsonView
+        lines={lines}
+        shown={Math.max(0, tick - 1)}
+        label={`${tx.jsonInLabel} · POST /api/v1/parse/batch · [ … ]`}
+      />
+      {tick >= 3 && <Caption>{tx.jsonInNote}</Caption>}
+    </div>
+  );
+}
+
+const SRC_TAG: Record<string, string> = {
+  string: "bg-brand-500/20 text-brand-200 ring-brand-500/40",
+  reference: "bg-sky-400/15 text-sky-200 ring-sky-400/40",
+  manual: "bg-white/15 text-white ring-white/30",
+};
+
+function OutputStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }) {
+  const lines = d.output.map((l) => ({
+    key: l.key,
+    value: l.value,
+    tag:
+      l.source != null ? (
+        <span
+          className={`shrink-0 rounded px-1.5 font-sans text-[10px] font-semibold uppercase leading-4 tracking-wide ring-1 ring-inset ${SRC_TAG[l.source] ?? ""}`}
+        >
+          {l.source === "string" ? tx.srcStringTag : tx.srcRefTag}
+        </span>
+      ) : l.value == null ? (
+        <span className="shrink-0 font-sans text-[10px] text-white/35">{tx.nullTag}</span>
+      ) : undefined,
+  }));
+  const shown = Math.min(lines.length, Math.max(0, tick - 1) * 2);
+  return (
+    <div>
+      <JsonView lines={lines} shown={shown} tags label={`${tx.jsonOutLabel} · 200 OK · application/json`} />
+      {shown >= lines.length && <Caption>{tx.jsonOutNote}</Caption>}
+    </div>
+  );
+}
+
 export function StageView({
   id,
   tick,
@@ -591,6 +721,10 @@ export function StageView({
   health,
 }: { id: StageId; tick: number; d: Derived; tx: DemoTexts; health: HealthInfo }) {
   switch (id) {
+    case "input":
+      return <InputStage d={d} tick={tick} tx={tx} />;
+    case "output":
+      return <OutputStage d={d} tick={tick} tx={tx} />;
     case "clean":
       return <CleanStage d={d} tick={tick} tx={tx} />;
     case "tokens":
@@ -609,5 +743,3 @@ export function StageView({
       return <ConfidenceStage d={d} tick={tick} tx={tx} />;
   }
 }
-
-export { Gauge };

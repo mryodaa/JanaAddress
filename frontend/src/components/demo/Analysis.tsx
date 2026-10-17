@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
 import { type ExplainRecord, FIELD_NAMES, type FieldName } from "../../api/client";
 import { useI18n } from "../../i18n";
-import { FIELD_COLORS } from "../../lib/fields";
+import { FIELD_COLORS, codepoints, cpIndexOf } from "../../lib/fields";
+import { outputJson, useCopy } from "../../lib/output";
+import { ConfidenceExplain } from "../ConfidenceExplain";
+import { useToast } from "../Toast";
 import { IconCheck, IconCopy } from "../icons";
-import { Button, FieldDot, Highlighted, Hint } from "../ui";
+import { Button, type ConfidenceTone, FieldDot, Highlighted, Hint, Unparsed, confidenceTone } from "../ui";
 import type { HealthInfo } from "./Theater";
 import type { Derived } from "./derive";
 import { type DemoTexts, fmt } from "./texts";
@@ -37,27 +39,26 @@ function Section({
   );
 }
 
-function outputJson(r: ExplainRecord): string {
-  const out: Record<string, unknown> = { id: r.id, raw_address: r.raw_address };
-  for (const f of FIELD_NAMES) out[f] = r[f] ?? null;
-  out.confidence = r.confidence;
-  return JSON.stringify(out, null, 2);
-}
+// вердикт по той же шкале, что значок уверенности; «плохая» уверенность здесь та же жёлтая плашка
+const VERDICT_TONE: Record<ConfidenceTone, string> = {
+  high: "bg-brand-50 text-brand-800 ring-brand-200",
+  ok: "bg-lime-50 text-lime-800 ring-lime-200",
+  low: "bg-warn-50 text-warn-800 ring-warn/40",
+  bad: "bg-warn-50 text-warn-800 ring-warn/40",
+};
 
 type Cover = "fields" | "markers" | "dropped" | "unparsed";
 
 /** Доли строки по символам без пробелов: что ушло в поля, что служебное, что отброшено, что не разобрано. */
 function coverage(r: ExplainRecord, d: Derived): Record<Cover, number> {
-  const raw = d.raw;
-  const kind: (Cover | null)[] = [...raw].map((c, i) =>
-    /\s/.test(c) || d.removed.has(i) ? null : "markers",
-  );
+  const cps = codepoints(d.raw);
+  const kind: (Cover | null)[] = cps.map((c, i) => (/\s/.test(c) || d.removed.has(i) ? null : "markers"));
   const mark = (a: number, b: number, k: Cover) => {
-    for (let i = a; i < b && i < raw.length; i++) if (kind[i] && kind[i] !== "fields") kind[i] = k;
+    for (let i = a; i < b && i < cps.length; i++) if (kind[i] && kind[i] !== "fields") kind[i] = k;
   };
   const find = (part: string, k: Cover) => {
-    const i = part ? raw.indexOf(part) : -1;
-    if (i >= 0) mark(i, i + part.length, k);
+    const i = part ? cpIndexOf(cps, part) : -1;
+    if (i >= 0) mark(i, i + codepoints(part).length, k);
   };
   for (const s of d.spans) if (s.label === "KZ_DUP" || s.label === "NOISE") mark(s.start, s.end, "dropped");
   if (d.bilingual) find(d.bilingual.dropped, "dropped");
@@ -66,7 +67,7 @@ function coverage(r: ExplainRecord, d: Derived): Record<Cover, number> {
   // поля последними и с приоритетом: спан поля важнее любой другой метки
   for (const fe of Object.values(r.fields ?? {})) {
     if (fe?.source !== "string" || !fe.span) continue;
-    for (let i = fe.span[0]; i < fe.span[1] && i < raw.length; i++) if (kind[i]) kind[i] = "fields";
+    for (let i = fe.span[0]; i < fe.span[1] && i < cps.length; i++) if (kind[i]) kind[i] = "fields";
   }
   const out: Record<Cover, number> = { fields: 0, markers: 0, dropped: 0, unparsed: 0 };
   let n = 0;
@@ -109,23 +110,14 @@ export function Analysis({
   health,
   threshold,
 }: { r: ExplainRecord; d: Derived; tx: DemoTexts; health: HealthInfo; threshold: number }) {
-  const { fieldLabels, stepLabels, locale } = useI18n();
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
+  const { t, fieldLabels, stepLabels, locale } = useI18n();
+  const toast = useToast();
+  const { copied, copy } = useCopy();
 
   const conf = r.confidence;
-  const verdict =
-    conf >= Math.max(threshold, 0.8) ? tx.verdictHigh : conf >= threshold ? tx.verdictMid : tx.verdictLow;
-  const tone =
-    conf >= Math.max(threshold, 0.8)
-      ? "bg-brand-50 text-brand-800 ring-brand-200"
-      : conf >= threshold
-        ? "bg-lime-50 text-lime-800 ring-lime-200"
-        : "bg-warn-50 text-warn-800 ring-warn/40";
+  const level = confidenceTone(conf, threshold);
+  const verdict = level === "high" ? tx.verdictHigh : level === "ok" ? tx.verdictMid : tx.verdictLow;
+  const tone = VERDICT_TONE[level];
   const lines = envelopeLines(r, fieldLabels);
   const pct = Math.round(threshold * 100);
   const H = (id: keyof DemoTexts["hints"]) => ({ hint: fmt(tx.hints[id], { pct }), hintLabel: tx.hintLabel });
@@ -141,7 +133,6 @@ export function Analysis({
   const cover = coverage(r, d);
   const filled = FIELD_NAMES.filter((f) => r[f] != null);
   const fromString = filled.filter((f) => r.fields?.[f]?.source === "string").length;
-  const maxPart = Math.max(0.01, ...d.parts.map(([, v]) => Math.abs(v)));
   const total = d.timings.reduce((a, s) => a + s.ms, 0);
   const maxMs = Math.max(0.001, ...d.timings.map((s) => s.ms));
 
@@ -169,7 +160,7 @@ export function Analysis({
         <div className="flex items-center gap-4 md:flex-col md:items-end">
           <div className="text-5xl font-semibold tracking-tight tabular-nums">{Math.round(conf * 100)}%</div>
           <div className="flex items-center gap-1.5 text-xs text-ink-3">
-            confidence
+            {tx.confWord}
             <Hint text={fmt(tx.hints.confidence, { pct })} label={tx.hintLabel} />
           </div>
         </div>
@@ -183,7 +174,7 @@ export function Analysis({
               <div className="absolute top-4 right-4 grid h-20 w-16 rotate-3 place-items-center rounded-md border-2 border-dashed border-brand-600 bg-brand-50 text-center text-brand-700">
                 <div>
                   <div className="text-lg font-bold leading-none tabular-nums">{Math.round(conf * 100)}</div>
-                  <div className="text-[9px] font-semibold uppercase tracking-wide">conf %</div>
+                  <div className="text-[9px] font-semibold uppercase tracking-wide">{tx.stampUnit}</div>
                 </div>
               </div>
               {lines.length ? (
@@ -232,7 +223,7 @@ export function Analysis({
                   <span className={a.decision === "rules" ? "font-semibold" : "text-ink-3 line-through"}>
                     {a.rules?.value || "—"}
                   </span>
-                  <span className="text-ink-3">vs</span>
+                  <span className="text-ink-3">{tx.versus}</span>
                   <span className={a.decision === "model" ? "font-semibold" : "text-ink-3 line-through"}>
                     {a.model?.value || "—"}
                   </span>
@@ -272,7 +263,7 @@ export function Analysis({
                 <b className="tabular-nums text-ink">{health.houses?.toLocaleString(locale) ?? "—"}</b>{" "}
                 {tx.facts.houses}
               </div>
-              <div className="text-ink-3">OSM + КАТО</div>
+              <div className="text-ink-3">{tx.refLine}</div>
             </div>
           </div>
         </Section>
@@ -293,7 +284,7 @@ export function Analysis({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span
-                    className={`block break-words text-sm font-medium ${v ? "" : "font-normal text-line"}`}
+                    className={`block break-words text-sm font-medium ${v ? "" : "font-normal text-ink-3"}`}
                   >
                     {v ?? tx.notFound}
                   </span>
@@ -319,32 +310,13 @@ export function Analysis({
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
         <Section title={tx.confTitle} i={4} {...H("confParts")}>
-          <div className="grid gap-1.5">
-            {d.parts.map(([k, v], i) => (
-              <div key={k} className="grid grid-cols-[minmax(0,1fr)_120px_48px] items-center gap-3 text-sm">
-                <span className="truncate text-ink-2">
-                  {tx.confParts[k] ?? k.replace(/^(flag|bonus):/, "").replace(/_/g, " ")}
-                </span>
-                <span className="relative h-2 rounded-full bg-line-soft">
-                  <span
-                    className={`stagger absolute inset-y-0 animate-grow-x rounded-full ${v >= 0 ? "left-1/2 origin-left bg-brand-600" : "right-1/2 origin-right bg-danger"}`}
-                    style={{ width: `${(Math.abs(v) / maxPart) * 50}%`, "--i": i + 8 } as React.CSSProperties}
-                  />
-                  <span className="absolute inset-y-[-3px] left-1/2 w-px bg-ink/20" />
-                </span>
-                <span
-                  className={`text-right font-mono text-xs font-semibold tabular-nums ${v >= 0 ? "text-brand-700" : "text-danger"}`}
-                >
-                  {v >= 0 ? "+" : ""}
-                  {v.toFixed(2)}
-                </span>
-              </div>
-            ))}
-            <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-sm font-semibold">
-              <span>{tx.confFinal}</span>
-              <span className="tabular-nums">{conf.toFixed(2)}</span>
+          {d.conf ? (
+            <ConfidenceExplain model={d.conf} threshold={threshold} trace={r.trace ?? undefined} values={r} />
+          ) : (
+            <div className="text-sm text-ink-3">
+              {tx.confFinal}: {conf.toFixed(2)}
             </div>
-          </div>
+          )}
         </Section>
 
         <Section title={tx.timingTitle} i={5} {...H("timing")}>
@@ -369,7 +341,9 @@ export function Analysis({
             ))}
             <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-sm font-semibold">
               <span>{tx.totalTime}</span>
-              <span className="tabular-nums">{total.toFixed(1)} ms</span>
+              <span className="tabular-nums">
+                {total.toFixed(1)} {t("msUnit")}
+              </span>
             </div>
             <p className="mt-1 text-[11px] text-ink-3">{tx.timingNote}</p>
           </div>
@@ -380,13 +354,7 @@ export function Analysis({
         <div className="flex min-w-0 flex-col gap-4">
           <Section title={tx.unparsedTitle} i={6} {...H("unparsed")}>
             {(r.unparsed ?? []).length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {(r.unparsed ?? []).map((u) => (
-                  <span key={u} className="rounded-md bg-danger-50 px-2 py-0.5 font-mono text-sm text-danger">
-                    {u}
-                  </span>
-                ))}
-              </div>
+              <Unparsed items={r.unparsed} withLabel={false} className="text-sm" />
             ) : (
               <div className="inline-flex items-center gap-2 text-sm text-brand-700">
                 <IconCheck className="h-4 w-4" /> {tx.unparsedNone}
@@ -433,7 +401,7 @@ export function Analysis({
                           ? ref
                             ? "bg-brand-50 text-brand-800 ring-brand-200"
                             : `${FIELD_COLORS[f].mark}`
-                          : "bg-canvas text-ink-3/60 ring-line-soft"
+                          : "bg-canvas text-ink-3 ring-line-soft"
                       }`}
                     >
                       {fieldLabels[f]}
@@ -461,10 +429,9 @@ export function Analysis({
                   copied ? <IconCheck className="h-4 w-4 animate-check-pop text-brand-600" /> : <IconCopy />
                 }
                 onClick={() => {
-                  void navigator.clipboard
-                    .writeText(outputJson(r))
-                    .then(() => setCopied(true))
-                    .catch(() => undefined);
+                  void copy(outputJson(r)).then((ok) => {
+                    if (!ok) toast(t("copyFailed"), "error");
+                  });
                 }}
               >
                 {copied ? tx.copied : tx.copy}

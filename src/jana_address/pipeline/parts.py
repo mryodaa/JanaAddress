@@ -60,9 +60,16 @@ class Parts:
 
     def _orgs(self, state: ParseState, tr: StepTrace, caps: bool) -> None:
         toks = state.tokens
+        # предыдущий не-punct токен для каждой позиции, одним проходом: поиск назад на каждом шаге квадратичен
+        prev_np: list[Token | None] = []
+        last: Token | None = None
+        for t in toks:
+            prev_np.append(last)
+            if t.kind != "punct":
+                last = t
         i = 0
         while i < len(toks):
-            prev = next((toks[k] for k in range(i - 1, -1, -1) if toks[k].kind != "punct"), None)
+            prev = prev_np[i]
             # «ул. АК ЖОЛ», «пр. АО ...»: после маркера улицы это название, а не организация
             after_street = prev is not None and prev.kind == "word" and prev.text in self.rules.street_types
             if after_street or not self._is_org(toks[i], caps):

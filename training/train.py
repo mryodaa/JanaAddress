@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     last = args.out / "last.pt"
     if args.resume and last.exists():
         # продолжение после падения: веса, оптимизатор, расписание lr, RNG и счётчики ранней остановки
-        st = torch.load(last, map_location=device, weights_only=False)
+        st = torch.load(last, map_location=device, weights_only=True)
         model.load_state_dict(st["state"])
         opt.load_state_dict(st["opt"])
         sched.load_state_dict(st["sched"])

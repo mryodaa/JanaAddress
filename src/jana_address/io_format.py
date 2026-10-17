@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,17 +44,36 @@ def decode(data: bytes) -> str:
         return data.decode("cp1251")
 
 
+class RawFloat(float):
+    """Дробное число из входа вместе с исходной записью: id вида 1e3 или 1.50 возвращается байт в байт,
+    а не как 1000.0 / 1.5 (json пишет float через repr)."""
+
+    text: str
+
+    def __new__(cls, text: str) -> RawFloat:
+        obj = super().__new__(cls, text)
+        obj.text = text
+        return obj
+
+
+def parse_value(s: str) -> Any:
+    return json.loads(s, parse_float=RawFloat)
+
+
+_parse = parse_value
+
+
 def loads(data: bytes | str) -> tuple[list[dict[str, Any]], Container]:
     text = decode(data) if isinstance(data, bytes) else data.lstrip("\ufeff")
     stripped = text.strip()
     if not stripped:
         return [], Container("list")
     try:
-        obj = json.loads(stripped)
+        obj = _parse(stripped)
     except json.JSONDecodeError as exc:
         lines = [ln for ln in stripped.splitlines() if ln.strip()]
         try:
-            items = [json.loads(ln) for ln in lines]
+            items = [_parse(ln) for ln in lines]
         except json.JSONDecodeError:
             raise InputFormatError(f"не JSON и не JSONL: {exc}") from exc
         return [_as_record(i) for i in items], Container("jsonl")
@@ -86,7 +106,43 @@ def to_obj(results: list[dict[str, Any]], container: Container) -> Any:
     return results
 
 
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+_RAW_MARK = "\ue000raw:"  # символ из частной области: в адресах его нет, json пишет его как есть
+
+
+def _mark_raw(obj: Any, raws: list[str]) -> Any:
+    """RawFloat -> строка-метка с номером; после json.dumps метка заменяется исходной записью числа."""
+    if isinstance(obj, RawFloat):
+        raws.append(obj.text)
+        return f"{_RAW_MARK}{len(raws) - 1}\ue000"
+    if isinstance(obj, dict):
+        return {k: _mark_raw(v, raws) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_mark_raw(v, raws) for v in obj]
+    return obj
+
+
+def dump_value(obj: Any, indent: int | None = None) -> str:
+    """Кириллица как есть. Одиночный суррогат (json.loads его пропускает) в UTF-8 не кодируется и уронил бы
+    весь ответ; в JSON-тексте он бывает только внутри строки, поэтому пишем его escape-последовательностью:
+    значение то же, остальные записи не трогаем. Дробные числа входа пишутся так, как пришли."""
+    raws: list[str] = []
+    text = json.dumps(_mark_raw(obj, raws), ensure_ascii=False, indent=indent)
+    if raws:
+        text = re.sub(
+            f'"{_RAW_MARK}(\\d+)\ue000"',
+            lambda m: raws[int(m.group(1))] if int(m.group(1)) < len(raws) else m.group(),
+            text,
+        )
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", text)
+
+
+_dump = dump_value
+
+
 def dumps(results: list[dict[str, Any]], container: Container, indent: int | None = None) -> str:
     if container.kind == "jsonl":
-        return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in results)
-    return json.dumps(to_obj(results, container), ensure_ascii=False, indent=indent)
+        return "".join(_dump(r) + "\n" for r in results)
+    return _dump(to_obj(results, container), indent)

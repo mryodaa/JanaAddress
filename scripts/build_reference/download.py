@@ -18,6 +18,7 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -67,6 +68,18 @@ def fetch(url: str, dest: Path, retries: int = 500) -> Path:
             part.rename(dest)
             print(f"готово: {dest} ({dest.stat().st_size / 1e6:.1f} МБ)")
             return dest
+        except urllib.error.HTTPError as exc:
+            # 416 на докачке: .part уже целиком, сервер отдавать нечего
+            if exc.code == 416 and have:
+                part.rename(dest)
+                print(f"готово (докачано ранее): {dest}")
+                return dest
+            # адреса нет или доступ закрыт: повторы ничего не дадут
+            if exc.code in (401, 403, 404, 410):
+                raise RuntimeError(f"{url}: HTTP {exc.code}") from exc
+            pause = min(60, 5 * attempt)
+            print(f"попытка {attempt}: {exc!r}, повтор через {pause} с", file=sys.stderr, flush=True)
+            time.sleep(pause)
         except (OSError, TimeoutError) as exc:
             pause = min(60, 5 * attempt)  # сеть может пропадать на минуты
             print(f"попытка {attempt}: {exc!r}, повтор через {pause} с", file=sys.stderr, flush=True)
@@ -123,6 +136,9 @@ class Egov:
         page = 1
         while True:
             text = self.get(f"/datasets/getdatasetsre?page={page}&count=10&{q}")
+            if not text:
+                # страница не скачалась после всех попыток: неполный список не кэшируем, иначе он навсегда
+                raise RuntimeError(f"egov: не удалось получить страницу {page} списка наборов")
             items = json.loads(text).get("datasets") if text.startswith("{") else None
             before = len(out)
             out.update({d["apiUri"]: d for d in items or []})
@@ -170,6 +186,12 @@ def egov_address_keys(rows: list[dict[str, Any]]) -> list[str]:
     return sorted(keys)
 
 
+def safe_name(name: str) -> str:
+    """apiUri приходит с сервера: в имя файла только буквы, цифры, точка, дефис и подчёркивание (без ../)."""
+    s = re.sub(r"[^\w.-]", "_", name).strip(".")
+    return s or "_"
+
+
 def fetch_egov(max_rows: int, pause: float, workers: int = 4) -> None:
     """Открытые наборы data.egov.kz с колонкой адреса -> cache/egov/<index>.json (строки для почти реального эталона,
     не для справочника и не для образа). Сначала самые вероятные по названию (школы, сады, аптеки, адреса)."""
@@ -187,7 +209,8 @@ def fetch_egov(max_rows: int, pause: float, workers: int = 4) -> None:
     todo = [
         d
         for d in sets
-        if not (out_dir / f"{d['apiUri']}.json").exists() and not (out_dir / f"{d['apiUri']}.skip").exists()
+        if not (out_dir / f"{safe_name(d['apiUri'])}.json").exists()
+        and not (out_dir / f"{safe_name(d['apiUri'])}.skip").exists()
     ]
     print(f"наборов: {len(all_sets)}, по названию {len(sets)}, осталось {len(todo)}", flush=True)
     local = threading.local()
@@ -197,10 +220,11 @@ def fetch_egov(max_rows: int, pause: float, workers: int = 4) -> None:
             local.eg = Egov(pause)  # своя сессия (cookie) на поток
         version, keys, rows = local.eg.rows(d["apiUri"], max_rows)
         if not keys:
-            (out_dir / f"{d['apiUri']}.skip").touch()
+            (out_dir / f"{safe_name(d['apiUri'])}.skip").touch()
             return None
         payload = {"index": d["apiUri"], "version": version, "name": d.get("nameRu"), "keys": keys, "rows": rows}
-        (out_dir / f"{d['apiUri']}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        out = out_dir / f"{safe_name(d['apiUri'])}.json"
+        out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return f"{d['apiUri']}: {len(rows)} строк, колонки {keys}"
 
     found = 0
@@ -229,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if not args.url:
             ap.error("для КАТО укажите --url (адрес файла меняется на stat.gov.kz) или положите файл в cache/ вручную")
-        fetch(args.url, CACHE / ("kato" + Path(args.url).suffix))
+        # расширение по пути адреса, без ?query
+        fetch(args.url, CACHE / ("kato" + Path(urllib.parse.urlparse(args.url).path).suffix))
     return 0
 
 

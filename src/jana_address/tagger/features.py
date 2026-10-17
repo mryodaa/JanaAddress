@@ -38,7 +38,7 @@ N_CASE = 4
 CLS_PAD, CLS_CYR, CLS_KAZ, CLS_LAT, CLS_DIGIT, CLS_SPACE, CLS_PUNCT, CLS_INVIS, CLS_OTHER = range(9)
 N_CLS = 9
 KAZ = frozenset("әғқңөұүһіӘҒҚҢӨҰҮҺІ")
-INVISIBLE = frozenset("\u200b\u200c\u200d\u2060\ufeff\u00ad‎‏᠎")
+INVISIBLE = frozenset("\u200b\u200c\u200d\u2060\ufeff\u00ad\u200e\u200f\u180e")
 
 IntArray = npt.NDArray[np.int64]
 

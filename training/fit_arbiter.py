@@ -40,7 +40,9 @@ ACCEPT_P = 0.8
 
 
 def load_set(name: str) -> list[dict[str, Any]]:
-    assert name not in HOLDOUT and not name.endswith("_holdout"), f"{name} отложенный: подбор весов на нём запрещён"
+    # не assert: под python -O проверка исчезла бы, а подбор на отложенных портит оценку
+    if name in HOLDOUT or name.endswith("_holdout"):
+        raise SystemExit(f"{name} отложенный: подбор весов на нём запрещён")
     if name == "val":
         rows = [json.loads(line) for line in (ROOT / "data" / "tagger" / "val.jsonl").open(encoding="utf-8")]
         return [{"id": f"v{i}", "raw_address": r["raw"], **{k: v for k, v in r.items() if k not in ("raw", "spans")}}

@@ -98,8 +98,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Записи с фильтрами */
+        /** Записи с фильтрами, страницами, в заданном порядке */
         get: operations["list_records_api_v1_sessions__sid__records_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sid}/records/position": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Место записи в списке с этими фильтрами и порядком */
+        get: operations["record_position_api_v1_sessions__sid__records_position_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -133,7 +150,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Результат с правками в формате sample_output.json */
+        /**
+         * Результат с правками: весь пакет (sample_output.json) или отфильтрованный список, JSON или CSV
+         * @description Без параметров: весь пакет в форме входа, все поля, как ответ батча. Фильтры те же, что у списка записей (uncertain, reviewed, edited, q, bucket) и порядок (sort, dir). fields: поля через запятую (id и raw_address всегда), sources: источник каждого непустого поля.
+         */
         get: operations["export_api_v1_sessions__sid__export_get"];
         put?: never;
         post?: never;
@@ -164,6 +184,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ConfigOut */
+        ConfigOut: {
+            /** Uncertain Threshold */
+            uncertain_threshold: number;
+        };
         /** ExplainRecord */
         ExplainRecord: {
             /** Id */
@@ -236,6 +261,20 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HealthOut */
+        HealthOut: {
+            /**
+             * Status
+             * @description ok | loading (503, пока грузятся справочник и модель)
+             */
+            status: string;
+            /** Version */
+            version: string;
+            /** Load Seconds */
+            load_seconds?: number | null;
+            reference?: components["schemas"]["ReferenceInfo"] | null;
+            tagger?: components["schemas"]["TaggerInfo"] | null;
+        };
         /**
          * OutputRecord
          * @description Ровно схема ответа жюри.
@@ -290,6 +329,11 @@ export interface components {
             edited: string[];
             /** Reviewed */
             reviewed: boolean;
+            /**
+             * Skipped
+             * @default false
+             */
+            skipped: boolean;
             /** Unparsed */
             unparsed: string[];
             /** Pending */
@@ -303,8 +347,16 @@ export interface components {
         };
         /** RecordList */
         RecordList: {
-            /** Total */
+            /**
+             * Total
+             * @description записей с этими фильтрами всего (страница может быть короче)
+             */
             total: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
             /** Items */
             items: components["schemas"]["RecordItem"][];
         };
@@ -319,6 +371,37 @@ export interface components {
             };
             /** Reviewed */
             reviewed?: boolean | null;
+            /**
+             * Skipped
+             * @description true: отложить (вне очереди неуверенных), false: вернуть
+             */
+            skipped?: boolean | null;
+        };
+        /** RecordPosition */
+        RecordPosition: {
+            /**
+             * Position
+             * @description место записи в списке с этими фильтрами и порядком; null: её там нет
+             */
+            position: number | null;
+        };
+        /** ReferenceInfo */
+        ReferenceInfo: {
+            /** File */
+            file?: string | null;
+            /**
+             * Counts
+             * @description записей справочника по типам
+             */
+            counts?: {
+                [key: string]: number;
+            };
+            /** Houses */
+            houses?: number | null;
+            /** Built At */
+            built_at?: string | null;
+            /** Sources */
+            sources?: string[];
         };
         /** SessionBrief */
         SessionBrief: {
@@ -401,9 +484,27 @@ export interface components {
             edited: number;
             /**
              * To Review
-             * @description неуверенных, ещё не проверенных и не исправленных (как фильтр uncertain)
+             * @description очередь проверки: неуверенные, не проверенные, не исправленные, не отложенные
              */
             to_review: number;
+            /**
+             * Skipped
+             * @description отложенных оператором
+             * @default 0
+             */
+            skipped: number;
+            /**
+             * Review Total
+             * @description записей, неуверенных по оценке разбора (вся очередь проверки)
+             * @default 0
+             */
+            review_total: number;
+            /**
+             * Review Done
+             * @description из них уже подтверждено или исправлено
+             * @default 0
+             */
+            review_done: number;
             /** Mean Confidence */
             mean_confidence: number | null;
             /**
@@ -429,6 +530,26 @@ export interface components {
              */
             sources: {
                 [key: string]: number;
+            };
+        };
+        /** TaggerInfo */
+        TaggerInfo: {
+            /**
+             * Mode
+             * @description off | shadow | on | only
+             */
+            mode: string;
+            /** Loaded */
+            loaded: boolean;
+            /** Version */
+            version?: string | null;
+            /** Max Len */
+            max_len?: number | null;
+            /** Warmup Ms */
+            warmup_ms?: number | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
             };
         };
         /** ValidationError */
@@ -481,7 +602,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        /** @description Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file) */
+        /** @description Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file). Принимается и объект со списком записей ({"records": [...]}), одиночная запись, JSONL: ответ возвращается в той же форме контейнера */
         requestBody: {
             content: {
                 /**
@@ -500,23 +621,29 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Ответ в той же форме контейнера, что вход; для JSONL application/x-ndjson */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OutputRecord"][];
+                    "application/x-ndjson": string;
                 };
             };
-            /** @description Validation Error */
+            /** @description тело больше лимита JANA_MAX_UPLOAD_MB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description не JSON/JSONL или нет записей */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };
@@ -571,9 +698,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ConfigOut"];
                 };
             };
         };
@@ -607,7 +732,24 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file). Принимается и объект со списком записей ({"records": [...]}), одиночная запись, JSONL: ответ возвращается в той же форме контейнера */
+        requestBody: {
+            content: {
+                /**
+                 * @example [
+                 *       {
+                 *         "id": "rec_00417",
+                 *         "raw_address": "город Алматы/Алматы қаласы, Мкр Аксай 3а, 59, кв 70"
+                 *       }
+                 *     ]
+                 */
+                "application/json": components["schemas"]["InputRecord"][];
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -618,14 +760,19 @@ export interface operations {
                     "application/json": components["schemas"]["SessionCreated"];
                 };
             };
-            /** @description Validation Error */
+            /** @description файл больше лимита */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description неверный формат или нет записей */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };
@@ -648,6 +795,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionInfo"];
                 };
+            };
+            /** @description сессия не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -682,6 +836,13 @@ export interface operations {
                     };
                 };
             };
+            /** @description сессия не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -699,7 +860,13 @@ export interface operations {
                 uncertain?: boolean;
                 reviewed?: boolean | null;
                 edited?: boolean | null;
+                /** @description подстрока исходной строки или значения поля, без учёта регистра */
                 q?: string;
+                sort?: "idx" | "confidence" | "raw" | "added";
+                dir?: "asc" | "desc";
+                /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
+                bucket?: number | null;
+                skipped?: boolean | null;
                 offset?: number;
                 limit?: number;
             };
@@ -719,6 +886,62 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecordList"];
                 };
+            };
+            /** @description сессия не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_position_api_v1_sessions__sid__records_position_get: {
+        parameters: {
+            query: {
+                idx: number;
+                uncertain?: boolean;
+                reviewed?: boolean | null;
+                edited?: boolean | null;
+                q?: string;
+                sort?: "idx" | "confidence" | "raw" | "added";
+                dir?: "asc" | "desc";
+                /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
+                bucket?: number | null;
+                skipped?: boolean | null;
+            };
+            header?: never;
+            path: {
+                sid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordPosition"];
+                };
+            };
+            /** @description сессия не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -751,6 +974,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecordItem"];
                 };
+            };
+            /** @description запись не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -788,20 +1018,40 @@ export interface operations {
                     "application/json": components["schemas"]["RecordItem"];
                 };
             };
-            /** @description Validation Error */
+            /** @description запись не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description неизвестное поле */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };
     export_api_v1_sessions__sid__export_get: {
         parameters: {
-            query?: never;
+            query?: {
+                uncertain?: boolean;
+                reviewed?: boolean | null;
+                edited?: boolean | null;
+                q?: string;
+                /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
+                bucket?: number | null;
+                skipped?: boolean | null;
+                sort?: "idx" | "confidence" | "raw" | "added";
+                dir?: "asc" | "desc";
+                /** @description province,city,... (id и raw_address всегда); пусто = все */
+                fields?: string | null;
+                format?: "json" | "csv";
+                /** @description добавить источник поля: _sources в JSON, колонки *_source в CSV */
+                sources?: boolean;
+            };
             header?: never;
             path: {
                 sid: string;
@@ -816,17 +1066,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["OutputRecord"][];
+                    "text/csv": string;
                 };
             };
-            /** @description Validation Error */
+            /** @description сессия не найдена */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description пакет ещё разбирается */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description неизвестное поле в fields */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };
@@ -845,7 +1108,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HealthOut"];
+                };
+            };
+            /** @description ещё загружается */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthOut"];
                 };
             };
         };

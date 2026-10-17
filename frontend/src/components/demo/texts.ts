@@ -6,7 +6,6 @@ export interface DemoTexts {
   title: string;
   subtitle: string;
   run: string;
-  running: string;
   placeholder: string;
   examples: string;
   stageOf: string;
@@ -34,7 +33,6 @@ export interface DemoTexts {
   bilingualDropped: string;
   partsDropped: string;
   rulesNone: string;
-  fieldSlots: string;
   taggerSweep: string;
   taggerSpans: string;
   taggerOff: string;
@@ -50,6 +48,76 @@ export interface DemoTexts {
   refSources: Record<string, string>;
   confParts: Record<string, string>;
   confFinal: string;
+  // объяснение уверенности: баллы признаков, сумма, перевод в проценты
+  cx: {
+    title: string;
+    how: string;
+    pointHint: string;
+    base: string;
+    baseWhy: string;
+    baseOrigin: string;
+    points: string;
+    sum: string;
+    above: string;
+    below: string;
+    toThreshold: string;
+    margin: string;
+    worst: string;
+    best: string;
+    read: string;
+    cap: string;
+    curve: string;
+    curveAria: string;
+    share: string;
+    words: string;
+    weight: string;
+    flagWhy: string;
+    more: string;
+    formula: string;
+    present: string;
+    valueOf: string;
+    oddsUp: string;
+    oddsDown: string;
+    effect: string;
+    effectNone: string;
+    whyCap: string;
+    whyEdge: string;
+    origin: string;
+    ctxConsumed: string;
+    ctxUnparsed: string;
+    ctxStreet: string;
+    ctxHouse: string;
+    ctxCity: string;
+    ctxProvince: string;
+    ctxWeakest: string;
+    ctxAllStrong: string;
+    rMarker: string;
+    rStrong: string;
+    rWeak: string;
+    rGuess: string;
+    ctxDispute: string;
+    winnerRules: string;
+    winnerModel: string;
+    ctxRulesOnly: string;
+    ctxModelOnly: string;
+    ctxAgree: string;
+    ctxStreetRef: string;
+    ctxStreetNoRef: string;
+    ctxInCity: string;
+    ctxHouseRef: string;
+    ctxExtra: string;
+    ctxGuessed: string;
+    ctxLayout: string;
+    why: Record<string, string>;
+  };
+  // этапы «Вход» и «Выход»: JSON как в sample_input.json / sample_output.json
+  jsonInLabel: string;
+  jsonInNote: string;
+  jsonOutLabel: string;
+  jsonOutNote: string;
+  srcStringTag: string;
+  srcRefTag: string;
+  nullTag: string;
   // отчёт
   reportTitle: string;
   reportLead: string;
@@ -59,7 +127,6 @@ export interface DemoTexts {
   envelope: string;
   envelopeEmpty: string;
   fieldsTitle: string;
-  whereFrom: string;
   fromString: string;
   notFound: string;
   agreementTitle: string;
@@ -80,9 +147,13 @@ export interface DemoTexts {
   coverageFromRef: string;
   copy: string;
   copied: string;
+  confWord: string;
+  stampUnit: string;
+  versus: string;
+  refLine: string;
   modelFacts: string;
   refFacts: string;
-  facts: { streets: string; houses: string; cities: string; f1: string; size: string };
+  facts: { streets: string; houses: string; cities: string; f1: string };
   // пояснения к значку «?»: откуда число и как считается
   hintLabel: string;
   hints: Record<HintId, string>;
@@ -105,6 +176,7 @@ export type HintId =
   | "arbiterScore";
 
 export type StageId =
+  | "input"
   | "clean"
   | "tokens"
   | "bilingual"
@@ -112,7 +184,8 @@ export type StageId =
   | "tagger"
   | "arbiter"
   | "reference"
-  | "confidence";
+  | "confidence"
+  | "output";
 
 const ru: DemoTexts = {
   nav: "Демо",
@@ -120,7 +193,6 @@ const ru: DemoTexts = {
   subtitle:
     "Введите адрес как его пишут люди: с опечатками, сокращениями, на двух языках. Покажем по шагам, что происходит внутри.",
   run: "Показать разбор",
-  running: "Разбираем…",
   placeholder: "Например: г.Алматы, мкр.Самал-2 д.5 кв.12 4подьезд",
   examples: "Попробуйте:",
   stageOf: "Шаг {n} из {total}",
@@ -138,6 +210,13 @@ const ru: DemoTexts = {
   another: "Другой адрес",
   demoNote: "Анимация замедлена для наглядности: на самом деле весь разбор занимает миллисекунды.",
   stages: {
+    input: {
+      title: "Вход",
+      lead: "Запись приходит так, как её подаёт жюри: JSON с id и одной строкой raw_address. Область, город и адрес склеены вместе, как лежат в базе.",
+      tool: "REST API, пакетный метод",
+      toolDetail:
+        "POST /api/v1/parse/batch принимает массив записей (sample_input.json), объект со списком или JSONL; ответ приходит в той же форме.",
+    },
     clean: {
       title: "Очистка",
       lead: "Убираем невидимые символы, лишние пробелы и чиним текст, набранный в английской раскладке. Оригинал при этом не меняется.",
@@ -183,9 +262,17 @@ const ru: DemoTexts = {
     },
     confidence: {
       title: "Уверенность",
-      lead: "Собираем оценку из понятных слагаемых: сколько строки разобрано, что нашлось в справочнике, согласились ли правила и модель.",
-      tool: "Аддитивная модель",
-      toolDetail: "Веса в rules/confidence.yaml, калибровка проверяется на отложенных наборах.",
+      lead: "Собираем оценку из баллов: у каждого признака разбора свой вес, баллы складываются, а сумма переводится в вероятность. Плюс тянет к 100%, минус к нулю.",
+      tool: "Логистическая регрессия",
+      toolDetail:
+        "Веса подобраны на проверочных наборах (training/fit_confidence.py), не заданы вручную. Итог: вероятность, что все поля метрики верны, от 2 до 99%.",
+    },
+    output: {
+      title: "Выход",
+      lead: "Из шагов собирается ответ в формате sample_output.json: id и raw_address без изменений, каждое поле отдельно, то, что не удалось определить, null.",
+      tool: "Ответ API",
+      toolDetail:
+        "Строковые поля вырезаны из исходной строки как написаны, справочные помечены источником; confidence в метрику не входит, по нему оператор видит, что проверить.",
     },
   },
   cleanNothing: "Строка чистая: удалять нечего.",
@@ -198,7 +285,6 @@ const ru: DemoTexts = {
   bilingualDropped: "отброшено",
   partsDropped: "не адрес",
   rulesNone: "Правила ничего не нашли.",
-  fieldSlots: "Поля",
   taggerSweep: "Модель читает строку по символам",
   taggerSpans: "Предложенные спаны и вероятность",
   taggerOff: "Модель в этой сборке выключена: разбор только по правилам.",
@@ -234,9 +320,9 @@ const ru: DemoTexts = {
     admin: "Есть город/область",
     unparsed: "Неразобранный остаток",
     no_street_house: "Нет ни улицы, ни дома",
-    "flag:model_agree_all": "Правила и модель согласны",
-    "flag:model_disagree": "Модель где-то не согласна",
-    "flag:model_override": "Модель переспорила правила",
+    "flag:model_agree_all": "Правила и нейросеть совпали",
+    "flag:model_disagree": "Правила и нейросеть разошлись",
+    "flag:model_override": "Нейросеть поправила правила",
     "flag:layout_fixed": "Чинили раскладку",
     "flag:guessed_street": "Улица угадана без маркера",
     "flag:guessed_city": "Город угадан",
@@ -258,6 +344,112 @@ const ru: DemoTexts = {
     "flag:marker_without_number": "Маркер без номера",
   },
   confFinal: "Итог",
+  cx: {
+    title: "Почему {pct}%",
+    how: "Модель складывает баллы за признаки разбора и переводит сумму в вероятность. Плюс тянет к 100%, минус к нулю; у края шкалы каждый следующий балл двигает итог всё меньше.",
+    pointHint:
+      "Балл меняет шансы на полностью верный разбор: +0,69 балла удваивают шансы, −0,69 вдвое снижают.",
+    base: "База модели",
+    baseWhy: "Стартовая точка, когда о строке ещё ничего не известно",
+    baseOrigin:
+      "База — баллы записи без единого признака. Она отрицательная: без признаков модель скорее не верит разбору. Подобрана по данным вместе с весами.",
+    points: "баллы",
+    sum: "Сумма баллов",
+    above: "Выше порога {th}%: запись считается уверенной",
+    below: "Ниже порога {th}%: запись попадёт в очередь проверки",
+    toThreshold: "До порога не хватает {pts} балла",
+    margin: "Запас до порога {pts} балла",
+    worst: "Сильнее всего снизило: «{label}» ({pts}). Без этого было бы {pct}%.",
+    best: "Больше всего добавило: «{label}» (+{pts}).",
+    read: "Как читать: из 100 записей с уверенностью {pct}% примерно {pct} разобраны полностью верно, все поля метрики.",
+    cap: "Итог ограничен диапазоном {lo}–{hi}%: полной уверенности модель не даёт.",
+    curve: "Как баллы переходят в проценты",
+    curveAria: "Сумма баллов {z} на кривой перевода: {pct}%, порог {th}%",
+    share: "доля {v}%",
+    words: "слов: {v}",
+    weight: "вес {w}",
+    flagWhy: "Признак, замеченный при разборе",
+    more: "Откуда это число",
+    formula: "Вес {w} × {x} = {pts} балла",
+    present: "признак есть (1)",
+    valueOf: "значение {x}",
+    oddsUp: "Шансы на полностью верный разбор выше в {k} раза, чем без этого признака",
+    oddsDown: "Шансы на полностью верный разбор ниже в {k} раза, чем без этого признака",
+    effect: "Сдвинул итог на {pp} п. п.: без него было бы {pct}%",
+    effectNone: "На итоговый процент почти не повлиял (меньше 1 п. п.): {why}",
+    whyCap: "итог упирается в потолок {hi}%",
+    whyEdge: "у края шкалы баллы двигают процент слабо",
+    origin:
+      "Откуда вес: подобран автоматически (логистическая регрессия, training/fit_confidence.py) на ~8 400 размеченных записях, где правильный ответ известен заранее. Чем чаще с этим признаком разбор оказывался ошибочным, тем сильнее минус; чем реже, тем больше плюс.",
+    ctxConsumed: "{n} из {m} слов и чисел строки попали в поля",
+    ctxUnparsed: "Не разобраны: {list}",
+    ctxStreet: "Улица: «{v}»",
+    ctxHouse: "Дом: «{v}»",
+    ctxCity: "Город: «{v}»",
+    ctxProvince: "Область: «{v}»",
+    ctxWeakest: "Слабее всего найдено поле «{field}»: {score}, {reason}",
+    ctxAllStrong: "Все поля из строки найдены надёжно, по явным маркерам",
+    rMarker: "по явному маркеру (ул., дом, кв.)",
+    rStrong: "уверенно: по справочнику или рядом с улицей",
+    rWeak: "по положению в строке, без маркера",
+    rGuess: "почти угадано",
+    ctxDispute: "{field}: правила «{rules}», нейросеть «{model}» → оставили {winner}",
+    winnerRules: "вариант правил",
+    winnerModel: "вариант нейросети",
+    ctxRulesOnly: "Нашли только правила: {list}",
+    ctxModelOnly: "Нашла только нейросеть: {list}",
+    ctxAgree: "Совпали: {list}",
+    ctxStreetRef: "«{street}» есть в справочнике{city}",
+    ctxStreetNoRef: "«{street}» нет в справочнике{city}",
+    ctxInCity: " города «{city}»",
+    ctxHouseRef: "Дом {house} на «{street}» есть в справочнике",
+    ctxExtra: "Не пригодились числа: {list}",
+    ctxGuessed: "«{street}» взята как улица без маркера «ул.»: по положению перед номером дома",
+    ctxLayout: "Набрано в английской раскладке: «{from}» → «{to}»",
+    why: {
+      consumed:
+        "Какая доля слов и чисел строки попала в поля. Чем больше осталось лишнего, тем меньше уверенность",
+      street_name: "В строке найдена улица: без неё адрес почти никогда не бывает разобран верно",
+      house: "Найден номер дома",
+      admin: "Найден город или область: так улица привязана к населённому пункту",
+      unparsed: "Сколько слов осталось неразобранными (до 5)",
+      no_street_house: "Нет ни улицы, ни дома",
+      min_score:
+        "Насколько надёжно найдено самое слабое поле из строки: 1 по явному маркеру, меньше, если поле взято по положению или угадано",
+      "flag:model_agree_all":
+        "Правила и нейросеть разобрали строку независимо и пришли к одному ответу по всем полям: это сильное подтверждение",
+      "flag:model_disagree":
+        "Правила и нейросеть разобрали строку по-разному хотя бы в одном поле: значит, строка неоднозначная, и одна из сторон может ошибаться",
+      "flag:model_override":
+        "Нейросеть предложила другой вариант поля, и он выиграл: справочник и проверки подтвердили его лучше, чем вариант правил",
+      "flag:street_in_reference":
+        "Найденная улица есть в справочнике этого города: значит, название прочитано правильно",
+      "flag:street_not_in_reference":
+        "Найденной улицы нет в справочнике: возможна опечатка, ошибка разбора или новая улица",
+      "flag:house_in_reference": "Такой дом на этой улице есть в справочнике: адрес существует",
+      "flag:extra_numbers":
+        "В строке остались числа, которые не стали ни домом, ни квартирой: возможно, одно из них стоило взять",
+      "flag:ambiguous_orientation":
+        "Непонятно, к чему относятся числа: «кв 5 12» может значить и кв. 5, и кв. 12",
+      "flag:marker_without_number": "Есть слово «кв», «подъезд» или «этаж», но рядом нет номера",
+      "flag:building_part_ignored": "Указан корпус или строение, но не найден сам дом",
+      "flag:house_like_area_number":
+        "Дом из одной цифры при микрорайоне без цифры: возможно, это номер микрорайона",
+      "flag:living_area_by_point": "Микрорайон определён по ближайшей точке на карте, а не по точной границе",
+      "flag:living_area_ambiguous": "Улица проходит через несколько микрорайонов: выбран самый вероятный",
+      "flag:district_by_near_polygon": "Село стоит у границы района: район определён по ближайшему контуру",
+      "flag:street_type_dominant": "Тип улицы в строке не написан и взят из справочника",
+      "flag:guessed_street": "Улица найдена без маркера «ул.», по положению перед номером",
+      "flag:layout_fixed": "Строка была набрана в английской раскладке и перекодирована",
+    },
+  },
+  jsonInLabel: "Тело запроса",
+  jsonInNote: "Одна запись из массива. Остальное сервис узнаёт только из этой строки.",
+  jsonOutLabel: "Ответ",
+  jsonOutNote: "Тот же id и та же строка, плюс 11 полей и уверенность.",
+  srcStringTag: "из строки",
+  srcRefTag: "справочник",
+  nullTag: "не найдено",
   reportTitle: "Подробный анализ",
   reportLead: "Всё, что сервис понял из строки, и откуда взялось каждое значение.",
   verdictHigh: "Уверенный разбор",
@@ -266,7 +458,6 @@ const ru: DemoTexts = {
   envelope: "Как на конверте",
   envelopeEmpty: "Недостаточно данных, чтобы собрать адрес",
   fieldsTitle: "Поля и их происхождение",
-  whereFrom: "Откуда",
   fromString: "из строки, символы {a}–{b}",
   notFound: "не найдено",
   agreementTitle: "Правила и нейросеть",
@@ -292,6 +483,10 @@ const ru: DemoTexts = {
   coverageFromRef: "из справочника",
   copy: "Копировать",
   copied: "Скопировано",
+  confWord: "уверенность",
+  stampUnit: "увер. %",
+  versus: "против",
+  refLine: "OSM + КАТО",
   modelFacts: "Модель",
   refFacts: "Справочник",
   facts: {
@@ -299,7 +494,6 @@ const ru: DemoTexts = {
     houses: "домов",
     cities: "населённых пунктов",
     f1: "F1 по спанам на отложенном наборе",
-    size: "размер модели",
   },
   hintLabel: "Подробнее",
   hints: {
@@ -318,7 +512,7 @@ const ru: DemoTexts = {
     fields:
       "У каждого поля указан источник. «Из строки, символы a–b» — значение вырезано из исходной строки по этим позициям, без исправлений. Зелёная метка — поля в строке не было, оно восстановлено по справочнику (найденный дом, улица, полигон района, ближайшая точка мкр, ориентир, КАТО). Значение из строки справочник никогда не перезаписывает.",
     confParts:
-      "Как сложилась вероятность: база — вероятность без признаков, дальше вклад каждого признака по порядку, в долях вероятности. Сумма вкладов равна итогу. Веса подобраны по данным (training/fit_confidence.py). «Ограничение 0,99» — итог не выше 0,99.",
+      "Баллы каждого признака: вес × значение. База и баллы складываются в сумму, сумма переводится в вероятность по S-кривой, поэтому у края шкалы каждый балл двигает итог меньше. Веса подобраны по данным (training/fit_confidence.py), итог ограничен 2–99%.",
     timing:
       "Реальное время каждого шага на сервере для этой строки (из trace ответа), в миллисекундах. Шкала корневая, чтобы короткие шаги тоже были видны. Анимация на сцене замедлена специально.",
     unparsed:
@@ -340,7 +534,6 @@ const kk: DemoTexts = {
   subtitle:
     "Мекенжайды адамдар жазғандай енгізіңіз: қателермен, қысқартулармен, екі тілде. Ішінде не болатынын қадамдап көрсетеміз.",
   run: "Талдауды көрсету",
-  running: "Талдап жатырмыз…",
   placeholder: "Мысалы: г.Алматы, мкр.Самал-2 д.5 кв.12 4подьезд",
   examples: "Байқап көріңіз:",
   stageOf: "{total} қадамның {n}-і",
@@ -358,6 +551,13 @@ const kk: DemoTexts = {
   another: "Басқа мекенжай",
   demoNote: "Анимация көрнекілік үшін баяулатылған: шын мәнінде бүкіл талдау миллисекундтар алады.",
   stages: {
+    input: {
+      title: "Кіріс",
+      lead: "Жазба қазылар беретіндей келеді: id және бір raw_address жолы бар JSON. Облыс, қала және мекенжай базадағыдай біріктірілген.",
+      tool: "REST API, пакеттік әдіс",
+      toolDetail:
+        "POST /api/v1/parse/batch жазбалар массивін (sample_input.json), тізімі бар объектіні немесе JSONL қабылдайды; жауап сол пішінде келеді.",
+    },
     clean: {
       title: "Тазалау",
       lead: "Көзге көрінбейтін таңбаларды, артық бос орындарды алып тастаймыз, ағылшын пернетақтасында терілген мәтінді түзетеміз. Түпнұсқа өзгермейді.",
@@ -403,9 +603,17 @@ const kk: DemoTexts = {
     },
     confidence: {
       title: "Сенімділік",
-      lead: "Бағаны түсінікті қосылғыштардан жинаймыз: жолдың қанша бөлігі талданды, анықтамалықта не табылды, ережелер мен модель келісті ме.",
-      tool: "Аддитивті модель",
-      toolDetail: "Салмақтар rules/confidence.yaml ішінде, калибрлеу бөлек жиындарда тексеріледі.",
+      lead: "Бағаны ұпайлардан жинаймыз: әр талдау белгісінің өз салмағы бар, ұпайлар қосылады, қосынды ықтималдыққа айналады. Плюс 100%-ға, минус нөлге тартады.",
+      tool: "Логистикалық регрессия",
+      toolDetail:
+        "Салмақтар тексеру жиындарында таңдалған (training/fit_confidence.py), қолмен берілмеген. Қорытынды: метриканың барлық өрістері дұрыс болу ықтималдығы, 2-ден 99%-ға дейін.",
+    },
+    output: {
+      title: "Шығыс",
+      lead: "Қадамдардан sample_output.json пішініндегі жауап жиналады: id және raw_address өзгеріссіз, әр өріс бөлек, анықталмағаны null.",
+      tool: "API жауабы",
+      toolDetail:
+        "Жол өрістері бастапқы жолдан жазылғандай қиылады, анықтамалық өрістерінің көзі белгіленеді; confidence метрикаға кірмейді, оператор не тексеру керегін көреді.",
     },
   },
   cleanNothing: "Жол таза: алып тастайтын ештеңе жоқ.",
@@ -418,7 +626,6 @@ const kk: DemoTexts = {
   bilingualDropped: "алынып тасталды",
   partsDropped: "мекенжай емес",
   rulesNone: "Ережелер ештеңе таппады.",
-  fieldSlots: "Өрістер",
   taggerSweep: "Модель жолды таңба бойынша оқиды",
   taggerSpans: "Ұсынылған спандар және ықтималдық",
   taggerOff: "Бұл жинақта модель өшірулі: талдау тек ережелер бойынша.",
@@ -447,7 +654,6 @@ const kk: DemoTexts = {
     "osm:poi": "OSM: бағдар бойынша",
   },
   confParts: {
-    ...ru.confParts,
     base: "База",
     consumed: "Бүкіл жол талданды",
     street_name: "Көше бар",
@@ -455,14 +661,134 @@ const kk: DemoTexts = {
     admin: "Қала/облыс бар",
     unparsed: "Талданбаған қалдық",
     no_street_house: "Көше де, үй де жоқ",
-    "flag:model_agree_all": "Ережелер мен модель келісті",
-    "flag:model_disagree": "Модель бір жерде келіспеді",
+    "flag:model_agree_all": "Ережелер мен нейрожелі сәйкес келді",
+    "flag:model_disagree": "Ережелер мен нейрожелі келіспеді",
+    "flag:model_override": "Нейрожелі ережелерді түзетті",
+    "flag:layout_fixed": "Пернетақта орналасуы түзетілді",
+    "flag:guessed_street": "Көше маркерсіз болжанды",
+    "flag:guessed_city": "Қала болжанды",
+    "flag:extra_numbers": "Артық сандар",
+    "flag:fuzzy_admin": "Қала дәл емес табылды",
+    "flag:district_ambiguous": "Көше бірнеше ауданда",
+    "flag:ambiguous_orientation": "Сандар неге жататыны түсініксіз",
     "flag:street_in_reference": "Көше анықтамалықта бар",
     "flag:house_in_reference": "Үй анықтамалықта бар",
     min_score: "Жолдан алынған өрістердің сенімділігі",
     cap: "Шектеу 0,99",
+    "flag:street_not_in_reference": "Көше анықтамалықта жоқ",
+    "flag:street_type_dominant": "Көше түрі анықтамалық бойынша",
+    "flag:living_area_by_point": "Шағын аудан ең жақын нүкте бойынша",
+    "flag:living_area_ambiguous": "Көше бірнеше шағын ауданда",
+    "flag:district_by_near_polygon": "Ауыл аудан шекарасында",
+    "flag:building_part_ignored": "Үйсіз корпус",
+    "flag:house_like_area_number": "Үй нөмірі шағын аудан нөміріне ұқсайды",
+    "flag:marker_without_number": "Нөмірсіз маркер",
   },
   confFinal: "Қорытынды",
+  cx: {
+    title: "Неге {pct}%",
+    how: "Модель талдау белгілері үшін ұпайларды қосып, қосындыны ықтималдыққа айналдырады. Плюс 100%-ға, минус нөлге тартады; шкаланың шетінде әр келесі ұпай қорытындыны азырақ жылжытады.",
+    pointHint:
+      "Ұпай толық дұрыс талдау мүмкіндігін өзгертеді: +0,69 ұпай мүмкіндікті екі есе арттырады, −0,69 екі есе азайтады.",
+    base: "Модель базасы",
+    baseWhy: "Жол туралы әлі ештеңе белгісіз кездегі бастапқы нүкте",
+    baseOrigin:
+      "База — бірде-бір белгісі жоқ жазбаның ұпайы. Ол теріс: белгілерсіз модель талдауға сенбейді. Салмақтармен бірге деректер бойынша таңдалған.",
+    points: "ұпай",
+    sum: "Ұпайлар қосындысы",
+    above: "{th}% шегінен жоғары: жазба сенімді саналады",
+    below: "{th}% шегінен төмен: жазба тексеру кезегіне түседі",
+    toThreshold: "Шекке дейін {pts} ұпай жетпейді",
+    margin: "Шекке дейінгі қор {pts} ұпай",
+    worst: "Ең көп төмендеткені: «{label}» ({pts}). Онсыз {pct}% болар еді.",
+    best: "Ең көп қосқаны: «{label}» (+{pts}).",
+    read: "Қалай оқу керек: сенімділігі {pct}% 100 жазбаның шамамен {pct}-і толық дұрыс талданған, метриканың барлық өрістері.",
+    cap: "Қорытынды {lo}–{hi}% ауқымымен шектелген: модель толық сенімділік бермейді.",
+    curve: "Ұпайлар пайызға қалай айналады",
+    curveAria: "Ұпайлар қосындысы {z} қисықта: {pct}%, шек {th}%",
+    share: "үлесі {v}%",
+    words: "сөз: {v}",
+    weight: "салмақ {w}",
+    flagWhy: "Талдау кезінде байқалған белгі",
+    more: "Бұл сан қайдан",
+    formula: "Салмақ {w} × {x} = {pts} ұпай",
+    present: "белгі бар (1)",
+    valueOf: "мәні {x}",
+    oddsUp: "Толық дұрыс талдау мүмкіндігі бұл белгісізге қарағанда {k} есе жоғары",
+    oddsDown: "Толық дұрыс талдау мүмкіндігі бұл белгісізге қарағанда {k} есе төмен",
+    effect: "Қорытындыны {pp} п. п. жылжытты: онсыз {pct}% болар еді",
+    effectNone: "Қорытынды пайызға әсері шамалы (1 п. п.-дан аз): {why}",
+    whyCap: "қорытынды {hi}% төбесіне тіреледі",
+    whyEdge: "шкаланың шетінде ұпайлар пайызды аз жылжытады",
+    origin:
+      "Салмақ қайдан: дұрыс жауабы алдын ала белгілі ~8 400 белгіленген жазбада автоматты таңдалған (логистикалық регрессия, training/fit_confidence.py). Осы белгімен талдау неғұрлым жиі қате болса, минус соғұрлым күшті; сирек болса, плюс көбірек.",
+    ctxConsumed: "Жолдағы {m} сөз бен санның {n}-і өрістерге түсті",
+    ctxUnparsed: "Талданбады: {list}",
+    ctxStreet: "Көше: «{v}»",
+    ctxHouse: "Үй: «{v}»",
+    ctxCity: "Қала: «{v}»",
+    ctxProvince: "Облыс: «{v}»",
+    ctxWeakest: "Ең әлсіз табылған өріс «{field}»: {score}, {reason}",
+    ctxAllStrong: "Жолдағы барлық өріс айқын маркерлер бойынша сенімді табылды",
+    rMarker: "айқын маркер бойынша (көше, үй, пәтер)",
+    rStrong: "сенімді: анықтамалық бойынша немесе көшенің жанында",
+    rWeak: "жолдағы орны бойынша, маркерсіз",
+    rGuess: "болжап табылды",
+    ctxDispute: "{field}: ережелер «{rules}», нейрожелі «{model}» → {winner} қалдырылды",
+    winnerRules: "ережелер нұсқасы",
+    winnerModel: "нейрожелі нұсқасы",
+    ctxRulesOnly: "Тек ережелер тапты: {list}",
+    ctxModelOnly: "Тек нейрожелі тапты: {list}",
+    ctxAgree: "Сәйкес келді: {list}",
+    ctxStreetRef: "«{street}» анықтамалықта бар{city}",
+    ctxStreetNoRef: "«{street}» анықтамалықта жоқ{city}",
+    ctxInCity: ", «{city}» қаласы",
+    ctxHouseRef: "«{street}» көшесіндегі {house} үй анықтамалықта бар",
+    ctxExtra: "Пайдаланылмаған сандар: {list}",
+    ctxGuessed: "«{street}» «көш.» маркерсіз көше ретінде алынды: үй нөмірінің алдындағы орны бойынша",
+    ctxLayout: "Ағылшын пернетақтасында терілген: «{from}» → «{to}»",
+    why: {
+      consumed: "Жолдағы сөздер мен сандардың өрістерге түскен үлесі. Артығы көп қалса, сенімділік төмен",
+      street_name: "Жолда көше табылды: онсыз мекенжай дұрыс талданбайды дерлік",
+      house: "Үй нөмірі табылды",
+      admin: "Қала немесе облыс табылды: көше елді мекенге байланады",
+      unparsed: "Талданбай қалған сөздер саны (5-ке дейін)",
+      no_street_house: "Көше де, үй де жоқ",
+      min_score:
+        "Жолдан алынған ең әлсіз өрістің сенімділігі: айқын маркер бойынша 1, орны бойынша алынса немесе болжанса азырақ",
+      "flag:model_agree_all":
+        "Ережелер мен нейрожелі жолды бір-біріне тәуелсіз талдап, барлық өрісте бір жауапқа келді: бұл күшті растау",
+      "flag:model_disagree":
+        "Ережелер мен нейрожелі кемінде бір өрісті әртүрлі талдады: жол екіұшты, бір жағы қателесуі мүмкін",
+      "flag:model_override":
+        "Нейрожелі өрістің басқа нұсқасын ұсынды және ол жеңді: анықтамалық пен тексерулер оны жақсырақ растады",
+      "flag:street_in_reference": "Табылған көше осы қаланың анықтамалығында бар: атауы дұрыс оқылған",
+      "flag:street_not_in_reference":
+        "Табылған көше анықтамалықта жоқ: қате теру, талдау қатесі немесе жаңа көше болуы мүмкін",
+      "flag:house_in_reference": "Бұл көшеде мұндай үй анықтамалықта бар: мекенжай бар",
+      "flag:extra_numbers": "Жолда үй де, пәтер де болмаған сандар қалды: біреуін алу керек болуы мүмкін",
+      "flag:ambiguous_orientation":
+        "Сандар неге жататыны түсініксіз: «пәтер 5 12» 5-пәтер де, 12-пәтер де болуы мүмкін",
+      "flag:marker_without_number": "«пәтер», «кіреберіс» не «қабат» сөзі бар, бірақ жанында нөмір жоқ",
+      "flag:building_part_ignored": "Корпус не құрылыс көрсетілген, бірақ үйдің өзі табылмады",
+      "flag:house_like_area_number":
+        "Цифрсыз шағын ауданда бір цифрлы үй: бұл шағын аудан нөмірі болуы мүмкін",
+      "flag:living_area_by_point":
+        "Шағын аудан нақты шекарамен емес, картадағы ең жақын нүкте бойынша анықталды",
+      "flag:living_area_ambiguous": "Көше бірнеше шағын аудан арқылы өтеді: ең ықтималы таңдалды",
+      "flag:district_by_near_polygon": "Ауыл аудан шекарасында: аудан ең жақын контур бойынша анықталды",
+      "flag:street_type_dominant": "Көше түрі жолда жазылмаған, анықтамалықтан алынды",
+      "flag:guessed_street": "Көше «көш.» маркерсіз, нөмірдің алдындағы орны бойынша табылды",
+      "flag:layout_fixed": "Жол ағылшын пернетақтасында терілген және қайта кодталды",
+    },
+  },
+  jsonInLabel: "Сұраныс денесі",
+  jsonInNote: "Массивтегі бір жазба. Қалғанын сервис тек осы жолдан біледі.",
+  jsonOutLabel: "Жауап",
+  jsonOutNote: "Сол id және сол жол, оған қоса 11 өріс және сенімділік.",
+  srcStringTag: "жолдан",
+  srcRefTag: "анықтамалық",
+  nullTag: "табылмады",
   reportTitle: "Толық талдау",
   reportLead: "Сервис жолдан не түсінді және әр мән қайдан алынды.",
   verdictHigh: "Сенімді талдау",
@@ -471,7 +797,6 @@ const kk: DemoTexts = {
   envelope: "Конверттегідей",
   envelopeEmpty: "Мекенжайды құрастыруға деректер жеткіліксіз",
   fieldsTitle: "Өрістер және олардың шығу тегі",
-  whereFrom: "Қайдан",
   fromString: "жолдан, {a}–{b} таңбалар",
   notFound: "табылмады",
   agreementTitle: "Ережелер және нейрожелі",
@@ -497,6 +822,10 @@ const kk: DemoTexts = {
   coverageFromRef: "анықтамалықтан",
   copy: "Көшіру",
   copied: "Көшірілді",
+  confWord: "сенімділік",
+  stampUnit: "сен. %",
+  versus: "қарсы",
+  refLine: "OSM + ҚАТО",
   modelFacts: "Модель",
   refFacts: "Анықтамалық",
   facts: {
@@ -504,7 +833,6 @@ const kk: DemoTexts = {
     houses: "үй",
     cities: "елді мекен",
     f1: "бөлек жиындағы спандар бойынша F1",
-    size: "модель көлемі",
   },
   hintLabel: "Толығырақ",
   hints: {
@@ -523,7 +851,7 @@ const kk: DemoTexts = {
     fields:
       "Әр өрістің көзі көрсетілген. «Жолдан, a–b таңбалар» — мән бастапқы жолдан осы позициялар бойынша қиылған, түзетусіз. Жасыл белгі — өріс жолда болмаған, анықтамалық бойынша қалпына келтірілген (табылған үй, көше, аудан полигоны, шағын ауданның жақын нүктесі, бағдар, КАТО). Жолдан алынған мәнді анықтамалық ешқашан ауыстырмайды.",
     confParts:
-      "Ықтималдық қалай құралды: база — белгілерсіз ықтималдық, әрі қарай әр белгінің үлесі ретімен, ықтималдық үлесінде. Үлестердің қосындысы қорытындыға тең. Салмақтар деректер бойынша таңдалған (training/fit_confidence.py). «Шектеу 0,99» — қорытынды 0,99-дан аспайды.",
+      "Әр белгінің ұпайы: салмақ × мән. База мен ұпайлар қосылады, қосынды S-қисық бойынша ықтималдыққа айналады, сондықтан шкаланың шетінде әр ұпай қорытындыны азырақ жылжытады. Салмақтар деректер бойынша таңдалған (training/fit_confidence.py), қорытынды 2–99%-бен шектелген.",
     timing:
       "Осы жол үшін әр қадамның сервердегі нақты уақыты (жауаптың trace-інен), миллисекундпен. Қысқа қадамдар да көрінуі үшін шкала түбірлік. Сахнадағы анимация әдейі баяулатылған.",
     unparsed: "Ешбір қадам да, ешбір өріс те алмаған сөздер мен сандар. Қалдық сенімділікте ескеріледі.",
@@ -544,7 +872,6 @@ const en: DemoTexts = {
   subtitle:
     "Type an address the way people write it: typos, abbreviations, two languages. We'll show step by step what happens inside.",
   run: "Show the parse",
-  running: "Parsing…",
   placeholder: "e.g. г.Алматы, мкр.Самал-2 д.5 кв.12 4подьезд",
   examples: "Try:",
   stageOf: "Step {n} of {total}",
@@ -562,6 +889,13 @@ const en: DemoTexts = {
   another: "Another address",
   demoNote: "The animation is slowed down for clarity: the real parse takes milliseconds.",
   stages: {
+    input: {
+      title: "Input",
+      lead: "The record arrives the way the jury sends it: JSON with an id and a single raw_address string. Region, city and address are glued together as in the database.",
+      tool: "REST API, batch method",
+      toolDetail:
+        "POST /api/v1/parse/batch takes an array of records (sample_input.json), an object with a list, or JSONL; the answer comes back in the same shape.",
+    },
     clean: {
       title: "Cleanup",
       lead: "Remove invisible characters and extra spaces, fix text typed in the English keyboard layout. The original is never changed.",
@@ -608,9 +942,17 @@ const en: DemoTexts = {
     },
     confidence: {
       title: "Confidence",
-      lead: "Build the score from readable terms: how much of the string was parsed, what was found in the reference, whether rules and model agreed.",
-      tool: "Additive model",
-      toolDetail: "Weights in rules/confidence.yaml; calibration is checked on held-out sets.",
+      lead: "We build the score from points: each parsing signal has its own weight, the points add up, and the sum turns into a probability. Plus pulls towards 100%, minus towards zero.",
+      tool: "Logistic regression",
+      toolDetail:
+        "Weights were fitted on validation sets (training/fit_confidence.py), not set by hand. The result is the probability that all metric fields are correct, from 2 to 99%.",
+    },
+    output: {
+      title: "Output",
+      lead: "The steps add up to an answer in the sample_output.json format: id and raw_address unchanged, every field separate, anything not determined is null.",
+      tool: "API response",
+      toolDetail:
+        "String fields are cut from the input as written, reference fields are tagged with their source; confidence is not part of the metric, it tells the operator what to check.",
     },
   },
   cleanNothing: "The string is clean: nothing to remove.",
@@ -623,7 +965,6 @@ const en: DemoTexts = {
   bilingualDropped: "dropped",
   partsDropped: "not an address",
   rulesNone: "The rules found nothing.",
-  fieldSlots: "Fields",
   taggerSweep: "The model reads the string character by character",
   taggerSpans: "Proposed spans and probability",
   taggerOff: "The model is off in this build: rules only.",
@@ -652,7 +993,6 @@ const en: DemoTexts = {
     "osm:poi": "OSM: by landmark",
   },
   confParts: {
-    ...ru.confParts,
     base: "Base",
     consumed: "Whole string parsed",
     street_name: "Has a street",
@@ -660,18 +1000,140 @@ const en: DemoTexts = {
     admin: "Has a city/region",
     unparsed: "Unparsed leftovers",
     no_street_house: "Neither street nor house",
-    "flag:model_agree_all": "Rules and model agree",
-    "flag:model_disagree": "Model disagrees somewhere",
-    "flag:model_override": "Model overrode the rules",
+    "flag:model_agree_all": "Rules and neural network agreed",
+    "flag:model_disagree": "Rules and neural network disagreed",
+    "flag:model_override": "Neural network corrected the rules",
     "flag:layout_fixed": "Keyboard layout was fixed",
     "flag:guessed_street": "Street guessed without a marker",
+    "flag:guessed_city": "City guessed",
+    "flag:extra_numbers": "Extra numbers",
+    "flag:fuzzy_admin": "City matched fuzzily",
+    "flag:district_ambiguous": "Street in several districts",
+    "flag:ambiguous_orientation": "Unclear what the numbers refer to",
     "flag:street_in_reference": "Street is in the reference",
     "flag:house_in_reference": "House is in the reference",
     min_score: "Reliability of fields from the string",
     cap: "Capped at 0.99",
     "flag:street_not_in_reference": "Street not in the reference",
+    "flag:street_type_dominant": "Street type from the reference",
+    "flag:living_area_by_point": "Microdistrict by nearest point",
+    "flag:living_area_ambiguous": "Street in several microdistricts",
+    "flag:district_by_near_polygon": "Village near a district border",
+    "flag:building_part_ignored": "Building block without a house",
+    "flag:house_like_area_number": "House looks like a microdistrict number",
+    "flag:marker_without_number": "Marker without a number",
   },
   confFinal: "Total",
+  cx: {
+    title: "Why {pct}%",
+    how: "The model adds up points for parsing signals and turns the sum into a probability. Plus pulls towards 100%, minus towards zero; near the edges each extra point moves the result less.",
+    pointHint:
+      "A point changes the odds of a fully correct parse: +0.69 doubles the odds, −0.69 halves them.",
+    base: "Model base",
+    baseWhy: "The starting point when nothing is known about the string yet",
+    baseOrigin:
+      "The base is the score of a record with no signals at all. It is negative: without signals the model leans towards distrust. Fitted on data together with the weights.",
+    points: "points",
+    sum: "Sum of points",
+    above: "Above the {th}% threshold: the record counts as confident",
+    below: "Below the {th}% threshold: the record goes to the review queue",
+    toThreshold: "{pts} points short of the threshold",
+    margin: "{pts} points of margin above the threshold",
+    worst: "Lowered it most: “{label}” ({pts}). Without it: {pct}%.",
+    best: "Added the most: “{label}” (+{pts}).",
+    read: "How to read it: of 100 records at {pct}% confidence, about {pct} are parsed fully correctly, all metric fields.",
+    cap: "The result is limited to {lo}–{hi}%: the model never claims full certainty.",
+    curve: "How points turn into percent",
+    curveAria: "Sum of points {z} on the curve: {pct}%, threshold {th}%",
+    share: "share {v}%",
+    words: "words: {v}",
+    weight: "weight {w}",
+    flagWhy: "A signal noticed while parsing",
+    more: "Where this number comes from",
+    formula: "Weight {w} × {x} = {pts} points",
+    present: "signal present (1)",
+    valueOf: "value {x}",
+    oddsUp: "The odds of a fully correct parse are {k} times higher than without this signal",
+    oddsDown: "The odds of a fully correct parse are {k} times lower than without this signal",
+    effect: "Moved the result by {pp} pp: without it, {pct}%",
+    effectNone: "Barely moved the final percent (under 1 pp): {why}",
+    whyCap: "the result is at the {hi}% ceiling",
+    whyEdge: "near the edge of the scale points move the percent little",
+    origin:
+      "Where the weight comes from: fitted automatically (logistic regression, training/fit_confidence.py) on ~8,400 labelled records whose correct answer is known in advance. The more often parses with this signal were wrong, the bigger the minus; the less often, the bigger the plus.",
+    ctxConsumed: "{n} of {m} words and numbers of the string went into fields",
+    ctxUnparsed: "Not parsed: {list}",
+    ctxStreet: "Street: “{v}”",
+    ctxHouse: "House: “{v}”",
+    ctxCity: "City: “{v}”",
+    ctxProvince: "Region: “{v}”",
+    ctxWeakest: "The weakest field is “{field}”: {score}, {reason}",
+    ctxAllStrong: "All fields from the string were found reliably, by explicit markers",
+    rMarker: "by an explicit marker (street, house, apt.)",
+    rStrong: "confidently: by the reference or next to the street",
+    rWeak: "by its position in the string, without a marker",
+    rGuess: "mostly guessed",
+    ctxDispute: "{field}: rules “{rules}”, neural network “{model}” → kept the {winner}",
+    winnerRules: "rules' version",
+    winnerModel: "neural network's version",
+    ctxRulesOnly: "Found only by rules: {list}",
+    ctxModelOnly: "Found only by the neural network: {list}",
+    ctxAgree: "Matched: {list}",
+    ctxStreetRef: "“{street}” is in the reference{city}",
+    ctxStreetNoRef: "“{street}” is not in the reference{city}",
+    ctxInCity: " of {city}",
+    ctxHouseRef: "House {house} on “{street}” is in the reference",
+    ctxExtra: "Numbers left unused: {list}",
+    ctxGuessed:
+      "“{street}” was taken as a street without a “st.” marker: by its position before the house number",
+    ctxLayout: "Typed in the English keyboard layout: “{from}” → “{to}”",
+    why: {
+      consumed:
+        "Share of the string's words and numbers that went into fields. The more left over, the lower the confidence",
+      street_name: "A street was found: without one an address is almost never parsed correctly",
+      house: "A house number was found",
+      admin: "A city or region was found: it ties the street to a settlement",
+      unparsed: "How many words were left unparsed (up to 5)",
+      no_street_house: "Neither street nor house",
+      min_score:
+        "How reliably the weakest field from the string was found: 1 by an explicit marker, less when taken by position or guessed",
+      "flag:model_agree_all":
+        "Rules and the neural network parsed the string independently and reached the same answer for every field: strong confirmation",
+      "flag:model_disagree":
+        "Rules and the neural network parsed at least one field differently: the string is ambiguous and one side may be wrong",
+      "flag:model_override":
+        "The neural network proposed another value for a field and won: the reference and checks backed it better than the rules' value",
+      "flag:street_in_reference": "The street found is in this city's reference: the name was read correctly",
+      "flag:street_not_in_reference":
+        "The street found is not in the reference: a typo, a parsing error or a new street",
+      "flag:house_in_reference": "This house on this street is in the reference: the address exists",
+      "flag:extra_numbers":
+        "Numbers were left that became neither house nor apartment: maybe one of them should have been used",
+      "flag:ambiguous_orientation":
+        "It is unclear what the numbers belong to: “apt 5 12” can mean apt. 5 or apt. 12",
+      "flag:marker_without_number": "There is “apt”, “entrance” or “floor” but no number next to it",
+      "flag:building_part_ignored": "A building block is given, but the house itself was not found",
+      "flag:house_like_area_number":
+        "A one-digit house in a microdistrict without a number: it may be the microdistrict number",
+      "flag:living_area_by_point":
+        "The microdistrict was found by the nearest map point, not by an exact boundary",
+      "flag:living_area_ambiguous":
+        "The street crosses several microdistricts: the most likely one was chosen",
+      "flag:district_by_near_polygon":
+        "The village is near a district border: the district was found by the nearest outline",
+      "flag:street_type_dominant":
+        "The street type is not written in the string and was taken from the reference",
+      "flag:guessed_street": "The street was found without a “st.” marker, by its position before the number",
+      "flag:layout_fixed": "The string was typed in the English keyboard layout and re-encoded",
+    },
+  },
+  jsonInLabel: "Request body",
+  jsonInNote: "One record from the array. Everything else the service learns from this string alone.",
+  jsonOutLabel: "Response",
+  jsonOutNote: "The same id and the same string, plus 11 fields and confidence.",
+  srcStringTag: "from string",
+  srcRefTag: "reference",
+  nullTag: "not found",
   reportTitle: "Detailed analysis",
   reportLead: "Everything the service understood from the string, and where each value came from.",
   verdictHigh: "Confident parse",
@@ -680,7 +1142,6 @@ const en: DemoTexts = {
   envelope: "As on an envelope",
   envelopeEmpty: "Not enough data to assemble the address",
   fieldsTitle: "Fields and where they came from",
-  whereFrom: "Source",
   fromString: "from the string, chars {a}–{b}",
   notFound: "not found",
   agreementTitle: "Rules vs neural network",
@@ -706,6 +1167,10 @@ const en: DemoTexts = {
   coverageFromRef: "from the reference",
   copy: "Copy",
   copied: "Copied",
+  confWord: "confidence",
+  stampUnit: "conf %",
+  versus: "vs",
+  refLine: "OSM + KATO",
   modelFacts: "Model",
   refFacts: "Reference",
   facts: {
@@ -713,7 +1178,6 @@ const en: DemoTexts = {
     houses: "houses",
     cities: "settlements",
     f1: "span F1 on a held-out set",
-    size: "model size",
   },
   hintLabel: "Details",
   hints: {
@@ -732,7 +1196,7 @@ const en: DemoTexts = {
     fields:
       "Every field shows its source. “From the string, chars a–b” means the value is cut from the original string at those positions, with no corrections. A green tag means the field was not in the string and was restored from the reference (matched house, street, district polygon, nearest microdistrict point, landmark, KATO). The reference never overwrites a value taken from the string.",
     confParts:
-      "How the probability was built: the base is the probability with no features, then each feature adds its share in order, in probability units. The shares sum to the total. Weights are fitted on data (training/fit_confidence.py). “Capped at 0.99” means the total never exceeds 0.99.",
+      "Each signal's points: weight × value. The base and points add up to a sum, which turns into a probability along an S-curve, so near the edges each point moves the result less. Weights are fitted on data (training/fit_confidence.py); the result is limited to 2–99%.",
     timing:
       "Real server time of each step for this line (from the response trace), in milliseconds. The scale is square-root so short steps stay visible. The stage animation is slowed down on purpose.",
     unparsed:
@@ -751,4 +1215,9 @@ export const DEMO_TEXTS: Record<Language, DemoTexts> = { ru, kk, en };
 
 export function fmt(s: string, params: Record<string, string | number>): string {
   return s.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
+}
+
+/** Подпись части confidence; неизвестный флаг показываем по имени, без префикса. */
+export function confPartLabel(labels: Record<string, string>, key: string): string {
+  return labels[key] ?? key.replace(/^(flag|bonus):/, "").replace(/_/g, " ");
 }

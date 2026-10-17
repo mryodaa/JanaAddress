@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=Path("models"))
     args = ap.parse_args(argv)
 
-    ckpt = torch.load(args.run / "best.pt", map_location="cpu", weights_only=False)
+    ckpt = torch.load(args.run / "best.pt", map_location="cpu", weights_only=True)
     model = Tagger(len(ckpt["chars"]) + 2, **ckpt["hparams"])
     model.load_state_dict(ckpt["state"])
     model.eval()

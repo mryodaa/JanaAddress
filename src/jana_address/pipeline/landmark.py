@@ -12,6 +12,15 @@ from ..rules_loader import Rules, get_rules
 from .base import ParseState, StepTrace
 from .util import mark, match_phrase, segments, tidy_value, value_from
 
+_CLOSE_QUOTES = '"»”“'
+
+
+def _unbalanced(text: str) -> bool:
+    """Открывающих кавычек больше, чем закрывающих (прямая " считается парой сама с собой)."""
+    straight = text.count('"') % 2
+    curly = sum(text.count(c) for c in "«„") - sum(text.count(c) for c in "»”")
+    return bool(straight) or curly > 0
+
 
 class Landmark:
     name = "landmark"
@@ -80,6 +89,11 @@ class Landmark:
                 used.append(w)
                 e = pe
             value = tidy_value(state.raw[s:e])
+            # спан идёт по словам: открывающая кавычка внутри, закрывающая за краем, «ТЦ "Мега» выглядит обрезанным.
+            # Закрывающую добавляем, если она стоит в исходной строке сразу за значением (tidy_value срезал бы её)
+            if value and _unbalanced(value) and e < len(state.raw) and state.raw[e] in _CLOSE_QUOTES:
+                value += state.raw[e]
+                e += 1
             if value:
                 state.set_field("landmark", value, span=(s, e))
                 tr.notes.append(f"landmark {value!r}")

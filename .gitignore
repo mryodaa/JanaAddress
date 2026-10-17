@@ -18,7 +18,10 @@ frontend/node_modules/
 frontend/.vite/
 *.egg-info/
 *.tsbuildinfo
-.CLAUDE.md
+# локальные настройки Claude Code и окружения
+.claude/settings.local.json
+.env
+*.log
 
 # обучение теггера: окружение, чекпойнты и логи (артефакт для образа лежит в models/)
 .venv-train/
@@ -27,3 +30,6 @@ training_*.log
 
 # снапшот справочника для генератора синтетики (config.SYNTH_DB), не в git и не в образе
 reference/reference.synth_v1.sqlite
+# промежуточные справочники (в git и образе только reference/reference.sqlite)
+reference/*.sqlite
+!reference/reference.sqlite

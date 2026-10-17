@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..reference.store import Store, get_store
 from .base import ParseState, StepTrace
-from .util import mark, segments, value_from
+from .util import as_written, mark, segments, value_from
 
 
 class Leftover:
@@ -46,7 +46,8 @@ class Leftover:
                     continue
                 if found:
                     e = found[0]
-                    state.set_field("city", e.name, span=v[1], score=0.85)
+                    # Q22: город как в строке, справочник только для привязки (как в admin._set_city)
+                    state.set_field("city", as_written(v[0], e.name), span=v[1], score=0.85)
                     state.ref_ids["city"] = e.id
                     tr.notes.append(f"city {e.name!r} по справочнику (сегмент без маркера)")
                 elif "district" in state.fields or "province" in state.fields:

@@ -1,14 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { api } from "./api/client";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { ApiError, api } from "./api/client";
 import { CheckOne } from "./components/CheckOne";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { SessionView } from "./components/SessionView";
 import { Upload } from "./components/Upload";
-import { DemoPage } from "./components/demo/DemoPage";
 import { DEMO_TEXTS } from "./components/demo/texts";
-import { Segmented } from "./components/ui";
+import { Segmented, Skeleton } from "./components/ui";
 import { useI18n } from "./i18n";
+import { confirmLeave, useBeforeUnload } from "./lib/unsaved";
+
+// демо отдельным чанком: сцена и отчёт не нужны, пока вкладку не открыли
+const DemoPage = lazy(() => import("./components/demo/DemoPage").then((m) => ({ default: m.DemoPage })));
 
 type Tab = "batch" | "check" | "demo";
 
@@ -43,12 +47,22 @@ function storeSid(sid: string | null): void {
 export function App() {
   const { t, language } = useI18n();
   const [tab, setTab] = useState(() => readHash().tab);
+  // демо, раз открытое, остаётся смонтированным: переключение вкладок не сбрасывает показ
+  const [demoSeen, setDemoSeen] = useState(tab === "demo");
+  useEffect(() => {
+    if (tab === "demo") setDemoSeen(true);
+  }, [tab]);
   // пакет живёт отдельно от адреса: в #/check его нет, но вкладка «Пакет» должна вернуть к нему, а не к загрузке
   const [sid, setSid] = useState(() => {
     const r = readHash();
     return r.tab === "batch" ? r.sid : loadSid();
   });
-  const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 15000 });
+  // 503 у health значит «справочник ещё грузится», а не «сервис недоступен»
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: api.health,
+    refetchInterval: (q) => (q.state.data?.status === "ok" ? 15000 : 2000),
+  });
   const cfg = useQuery({ queryKey: ["config"], queryFn: api.config });
   const threshold = cfg.data?.uncertain_threshold ?? 0.95;
   // тот же ключ, что в SessionView: кэш общий, лишних запросов нет
@@ -68,17 +82,25 @@ export function App() {
     return () => window.removeEventListener("hashchange", on);
   }, []);
   useEffect(() => storeSid(sid), [sid]);
+  useBeforeUnload();
   const nav = (hash: string) => {
     window.location.hash = hash;
   };
 
-  const status = health.isError ? "down" : health.data?.status === "ok" ? "ok" : "loading";
+  const warming = health.error instanceof ApiError && health.error.status === 503;
+  const status =
+    health.data?.status === "ok" && !health.isError ? "ok" : health.isError && !warming ? "down" : "loading";
   return (
     <div className="flex h-full flex-col">
       <header className="shrink-0 border-b border-line bg-canvas">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+          {/* biome-ignore lint/a11y/useValidAnchor: настоящая ссылка, onClick только спрашивает про черновик */}
           <a
             href="#/"
+            onClick={(e) => {
+              // логотип уводит со страницы пакета: несохранённую правку молча не теряем
+              if (!confirmLeave(t("leaveConfirm"))) e.preventDefault();
+            }}
             className="group inline-flex items-center gap-2.5 rounded-xl bg-white py-1.5 pr-3 pl-1.5 font-semibold tracking-tight ring-1 ring-line transition hover:ring-brand-200"
           >
             <span className="relative">
@@ -134,23 +156,34 @@ export function App() {
       <div className="min-h-0 flex-1 overflow-auto">
         <main className="mx-auto h-full w-full max-w-[1600px] p-4">
           <div className={tab === "check" ? "animate-fade-in" : "hidden"}>
-            <CheckOne threshold={threshold} />
+            <ErrorBoundary resetKey={tab}>
+              <CheckOne threshold={threshold} />
+            </ErrorBoundary>
           </div>
           <div className={tab === "demo" ? "animate-fade-in" : "hidden"}>
-            <DemoPage threshold={threshold} active={tab === "demo"} />
+            <ErrorBoundary resetKey={tab}>
+              {/* до первого открытия вкладки чанк демо не грузим */}
+              {(tab === "demo" || demoSeen) && (
+                <Suspense fallback={<Skeleton className="mx-auto h-80 w-full max-w-6xl rounded-[24px]" />}>
+                  <DemoPage threshold={threshold} active={tab === "demo"} />
+                </Suspense>
+              )}
+            </ErrorBoundary>
           </div>
           <div className={tab === "batch" ? "h-full animate-fade-in" : "hidden"}>
-            {sid ? (
-              <SessionView
-                key={sid}
-                sid={sid}
-                threshold={threshold}
-                active={tab === "batch"}
-                onBack={() => nav("#/")}
-              />
-            ) : (
-              <Upload onSession={(id) => nav(`#/s/${id}`)} />
-            )}
+            <ErrorBoundary resetKey={`${tab}:${sid ?? ""}`}>
+              {sid ? (
+                <SessionView
+                  key={sid}
+                  sid={sid}
+                  threshold={threshold}
+                  active={tab === "batch"}
+                  onBack={() => nav("#/")}
+                />
+              ) : (
+                <Upload onSession={(id) => nav(`#/s/${id}`)} />
+              )}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

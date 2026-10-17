@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
 import sqlite3
@@ -152,3 +153,106 @@ def test_tagger_generalizes_to_unseen_toponyms() -> None:
     val = float(tagger.meta["metrics"]["val_span_f1"])
     print(f"\nspan-F1 на невиданных топонимах {f1:.4f} (val {val:.4f})")
     assert f1 >= 0.95 and f1 >= val - 0.03
+
+
+# ---------- весь пакет: кэш разрешён только на нормализации токенов и на загрузке ресурсов ----------
+# (модуль, функция): fold/norm/translit работают с отдельными словами и топонимами, остальное грузится раз на процесс
+ALLOWED_CACHES = {
+    ("reference/normalize.py", "norm"),
+    ("reference/normalize.py", "fold"),
+    ("reference/normalize.py", "translit_lat"),
+    ("reference/store.py", "ambiguous_city_keys"),
+    ("rules_loader.py", "get_rules"),
+}
+
+
+def _package_sources() -> list[tuple[str, ast.Module]]:
+    out = []
+    for p in sorted(config.PACKAGE_DIR.rglob("*.py")):
+        rel = p.relative_to(config.PACKAGE_DIR).as_posix()
+        out.append((rel, ast.parse(p.read_text(encoding="utf-8"))))
+    return out
+
+
+def _decorator_name(d: ast.expr) -> str:
+    d = d.func if isinstance(d, ast.Call) else d
+    if isinstance(d, ast.Attribute):
+        return d.attr
+    return d.id if isinstance(d, ast.Name) else ""
+
+
+def test_cache_decorators_only_where_allowed() -> None:
+    """Любой декоратор с «cache» в имени (lru_cache, cache, cached_property...) вне списка разрешённых."""
+    found = set()
+    for rel, tree in _package_sources():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and any(
+                "cache" in _decorator_name(d).lower() for d in node.decorator_list
+            ):
+                found.add((rel, node.name))
+    assert found <= ALLOWED_CACHES, sorted(found - ALLOWED_CACHES)
+
+
+def test_no_module_level_memo_dicts() -> None:
+    """Словарь на уровне модуля, в который пишут из функций, это самодельный кэш: таких быть не должно."""
+    bad = []
+    for rel, tree in _package_sources():
+        names = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign | ast.AnnAssign):
+                value = node.value
+                empty = isinstance(value, ast.Dict) and not value.keys
+                factory = isinstance(value, ast.Call) and _decorator_name(value) in {
+                    "dict",
+                    "OrderedDict",
+                    "defaultdict",
+                }
+                if empty or factory:
+                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    names |= {t.id for t in targets if isinstance(t, ast.Name)}
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Store)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in names
+            ):
+                bad.append((rel, node.value.id))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                v = node.func.value
+                if (
+                    isinstance(v, ast.Name)
+                    and v.id in names
+                    and node.func.attr in {"setdefault", "update", "__setitem__"}
+                ):
+                    bad.append((rel, v.id))
+    # engine._info: сведения о загрузке (время, размер справочника), а не ответы на строки
+    bad = [b for b in bad if b != ("engine.py", "_info")]
+    assert not bad, bad
+
+
+def test_same_string_is_parsed_again() -> None:
+    """Поведенческая проверка: тот же адрес после подмены шага даёт другой ответ, значит ответ не взят из кэша."""
+    from jana_address import engine
+
+    rec = {"id": "m", "raw_address": "г. Алматы, ул. Абая 150, кв 23"}
+    pipe = engine.get_pipeline()
+    first = engine.parse_one(rec, explain=False)
+    orig = list(pipe.steps)
+    i = next(k for k, s in enumerate(orig) if s.name == "confidence")
+    real = orig[i]
+
+    class Fixed:
+        name = "confidence"
+
+        def __call__(self, state: object) -> object:
+            st = real(state)  # type: ignore[arg-type]
+            st.confidence = 0.123
+            return st
+
+    pipe.steps = [*orig[:i], Fixed(), *orig[i + 1 :]]  # type: ignore[list-item]
+    try:
+        second = engine.parse_one(rec, explain=False)
+    finally:
+        pipe.steps = orig
+    assert first["confidence"] != 0.123 and second["confidence"] == 0.123

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import re
@@ -24,9 +25,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from jana_address import engine
+from jana_address import engine, io_format
 from jana_address.models import PARSED_FIELDS
-from jana_address.pipeline.runner import explain_extra, state_to_result
+from jana_address.pipeline.runner import explain_extra, parse_record, state_to_result
+from jana_address.pipeline.util import strip_invisible
 
 STRING_FIELDS = ("street_name", "house", "apartment", "entrance", "floor", "landmark", "living_area")
 SEEDS = [
@@ -133,14 +135,25 @@ def gen(rnd: random.Random, n: int) -> list[str]:
     return out[:n]
 
 
-_INVISIBLE = re.compile("[\u200b-\u200f\u2060-\u2064\ufeff\u00ad\u202a-\u202e]")
-
-
 def squash(s: str) -> str:
-    """Для проверки «значение есть в строке»: без невидимых символов, пробелов, кавычек (литера дома «85 "А"» -> «85 А»)
-    и регистра."""
-    s = unicodedata.normalize("NFC", _INVISIBLE.sub("", s))
+    """Для проверки «значение есть в строке»: без невидимых символов (тот же набор, что выбрасывает tidy_value),
+    пробелов, кавычек (литера дома «85 "А"» -> «85 А») и регистра."""
+    s = unicodedata.normalize("NFC", strip_invisible(s))
     return re.sub(r'[\s"«»“”„]+', "", s).lower()
+
+
+def roundtrip(rec: dict[str, Any]) -> list[str]:
+    """Полный путь жюри: parse_record + сериализация ответа. Ответ должен закодироваться в UTF-8 целиком, а
+    id/raw_address прочитаться обратно тем же значением."""
+    try:
+        res = parse_record(engine.get_pipeline(), rec)
+        body = io_format.dumps([res], io_format.Container("list")).encode("utf-8")
+        back = json.loads(body)[0]
+    except Exception as exc:
+        return [f"сериализация: {exc!r}"]
+    if back["id"] != rec["id"] or back["raw_address"] != rec["raw_address"]:
+        return ["id/raw_address изменены после сериализации"]
+    return []
 
 
 def check(raw: str, max_ms: float) -> list[str]:
@@ -156,8 +169,9 @@ def check(raw: str, max_ms: float) -> list[str]:
     if ms > max_ms:
         problems.append(f"медленно {ms:.0f} мс")
     out = state_to_result(rec, state)
-    if out["id"] != "fz" or out["raw_address"] is not raw:
+    if out["id"] != "fz" or not isinstance(out["raw_address"], str) or out["raw_address"] != raw:
         problems.append("id/raw_address изменены")
+    problems += roundtrip(rec)
     conf = out.get("confidence")
     if not isinstance(conf, int | float) or not 0 <= conf <= 1:
         problems.append(f"confidence={conf!r}")

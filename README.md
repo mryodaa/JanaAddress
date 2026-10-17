@@ -5,7 +5,7 @@
 * правила и словари в YAML + справочник SQLite + посимвольный теггер (650 КБ, ONNX) с арбитром, без сетевых вызовов, LLM и геокодеров в рантайме;
 * на каждую запись ровно один ответ, `id` и `raw_address` байт в байт, неизвестное поле = `null`;
 * 1000 записей разбираются за 1–2 секунды вместе с моделью (требование: 5 минут);
-* UI оператора: загрузка пакета, таблица с подсветкой, правка с клавиатуры, экспорт, trace по шагам.
+* UI оператора: загрузка пакета любого размера, таблица с подсветкой, правка с клавиатуры, экспорт, trace по шагам.
 
 ## Запуск одной командой
 
@@ -17,27 +17,29 @@ docker compose up --build
 
 Healthcheck compose ждёт `GET /api/v1/health` (готовность наступает меньше чем через секунду после старта: справочник грузится при старте).
 
+Колёса зависимостей в `vendor/wheels` собраны под x86_64, поэтому в compose задано `platform: linux/amd64`: на Mac с Apple Silicon образ собирается и работает через эмуляцию (Rosetta), без интернета. Модель проверяется уже при сборке: если `models/tagger.onnx` не загружается, `docker build` падает, а не запускает сервис на одних правилах.
+
 ## Как жюри прогоняет тестовый набор
 
 **Через батч-эндпоинт** (файл как есть: JSON-тело или multipart):
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/parse/batch \
-     -H "content-type: application/json" --data-binary @data/sample_input.json > out.json
+     -H "content-type: application/json" --data-binary @tests/fixtures/sample_input.json > out.json
 # или файлом
-curl -s -X POST http://localhost:8000/api/v1/parse/batch -F file=@data/sample_input.json > out.json
+curl -s -X POST http://localhost:8000/api/v1/parse/batch -F file=@tests/fixtures/sample_input.json > out.json
 # источники полей и trace (для разбора на защите)
-curl -s -X POST "http://localhost:8000/api/v1/parse/batch?explain=true" -F file=@data/sample_input.json
+curl -s -X POST "http://localhost:8000/api/v1/parse/batch?explain=true" -F file=@tests/fixtures/sample_input.json
 ```
 
-Форма ответа повторяет форму входа: массив → массив, объект `{"records": [...]}` → тот же ключ, JSONL → JSONL (см. `docs/QUESTIONS.md`, Q1).
+Форма ответа повторяет форму входа: массив → массив, объект `{"records": [...]}` → тот же ключ, JSONL → JSONL (`application/x-ndjson`, см. `docs/QUESTIONS.md`, Q1). `id` возвращается как пришёл, в том числе числом (`1e3` не превращается в `1000.0`).
 
 **Через CLI** (запасной путь, без сервера):
 
 ```bash
 docker compose run --rm -v "$PWD/data:/data" jana-address python -m jana_address.cli /data/sample_input.json /data/out.json
 # локально
-python -m jana_address.cli data/sample_input.json out.json
+python -m jana_address.cli tests/fixtures/sample_input.json out.json
 ```
 
 ## Офлайн-сборка и готовый образ
@@ -224,7 +226,7 @@ egov_dev на проверку уходит 13% записей, в них 6 из
 
 ## Статус
 
-Реализовано полностью: API (батч, одна строка, health, сессии, правки, экспорт), CLI, пайплайн из 11 шагов правил + теггер и арбитр с trace и источниками полей, правила в YAML, метрика и инструменты разметки/анализа, UI, тесты (390+), офлайн-зависимости, Docker/compose.
+Реализовано полностью: API (батч, одна строка, health, сессии, правки, экспорт), CLI, пайплайн из 12 шагов правил + теггер и арбитр с trace и источниками полей, правила в YAML, метрика и инструменты разметки/анализа, UI (пакет любого размера: таблица подгружает записи страницами, сортировка и поиск на сервере), тесты (440+), офлайн-зависимости, Docker/compose.
 
 Дальше:
 1. train.json не выдадут: пополнять почти реальный эталон (`data/realish/`: ещё пачки egov, ручной набор команды), итерировать правила на `*_dev`.

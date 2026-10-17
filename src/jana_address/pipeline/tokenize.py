@@ -28,7 +28,13 @@ _PHONE = re.compile(
     r"(?<!\d)(?:\+\s?7|8|7)[\s\-()]*7\d{2}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{1,2}(?!\d)|(?<!\d)\d{9,}(?!\d)"
 )
 _POSTCODE = re.compile(r"(?<![\d/\-])\d{6}(?![\d/\-])")
-_TIME = re.compile(r"(?<!\d)\d{1,2}[:.]\d{2}(?![\d.])(?=\s*(?:$|[,;|/]|ч|час|до|-))|(?<!\d)\d{1,2}:\d{2}(?!\d)")
+# время: с двоеточием всегда; с точкой только при явном контексте, иначе «Абая 10.30» (дом через точку)
+# потерял бы номер. Контекст: «ч», «час», «до», дефис после или предлог времени перед. Группа t: само время
+_TIME = re.compile(
+    r"(?<!\d)(?P<t>\d{1,2}:\d{2})(?!\d)"
+    r"|(?<!\d)(?P<t2>\d{1,2}\.\d{2})(?![\d.])(?=\s*(?:ч|час|до|-))"
+    r"|(?i:(?<![^\W\d_])(?:до|после|с|в|к)\s+)(?P<t3>\d{1,2}\.\d{2})(?![\d.])"
+)
 # «1-я Лодочная», «2-й переулок»: порядковое числительное это часть названия, а не номер
 _ORDINAL = re.compile(r"^\d{1,3}-?(й|я|ая|ый|ий|ой)$")
 # литера через пробел: «12 А», «5 б», «135 Л». Без однобуквенных маркеров и союзов
@@ -184,9 +190,12 @@ def mark_service_numbers(text: str, toks: list[Token]) -> list[str]:
     notes: list[str] = []
     for label, rx in (("phone", _PHONE), ("postcode", _POSTCODE), ("time", _TIME)):
         for m in rx.finditer(text):
-            hit = [t for t in toks if t.free and t.start < m.end() and t.end > m.start()]
+            # у времени помечаем только само число, без предлога перед ним (предлог снимается ниже)
+            g = next((k for k in ("t", "t2", "t3") if k in rx.groupindex and m.group(k)), None)
+            ms, me = m.span(g) if g else m.span()
+            hit = [t for t in toks if t.free and t.start < me and t.end > ms]
             # индекс и время только целыми токенами: «12/050000» или «д.12.30» не трогаем
-            if label != "phone" and not all(m.start() <= t.start and t.end <= m.end() for t in hit):
+            if label != "phone" and not all(ms <= t.start and t.end <= me for t in hit):
                 continue
             if not hit or any(t.kind == "word" for t in hit):
                 continue

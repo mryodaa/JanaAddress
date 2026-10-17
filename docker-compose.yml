@@ -1,6 +1,8 @@
 services:
   jana-address:
     build: .
+    # колёса в vendor/wheels только x86_64: на Apple Silicon образ собирается и идёт через эмуляцию
+    platform: linux/amd64
     image: jana-address:latest
     container_name: jana-address
     ports:

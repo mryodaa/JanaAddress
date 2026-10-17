@@ -103,3 +103,15 @@ export function parseDisputes(notes: string[]): Dispute[] {
   }
   return out;
 }
+
+export function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
+/** Числовые части confidence из trace: это JSON с сервера, значения проверяем, а не верим касту. */
+export function numericParts(x: unknown): [string, number][] {
+  if (!isRecord(x)) return [];
+  return Object.entries(x).filter(
+    (e): e is [string, number] => typeof e[1] === "number" && Number.isFinite(e[1]),
+  );
+}

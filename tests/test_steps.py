@@ -370,3 +370,63 @@ def test_layout(raw: str, fixed: str | None) -> None:
     from jana_address.pipeline.layout import Layout
 
     assert Layout().fix(raw) == fixed
+
+
+# ---------------- места без тестов до аудита ----------------
+def test_leftover_takes_city_as_written() -> None:
+    """Сегмент без маркера, найденный в справочнике как город: значение как в строке (Q22), источник string."""
+    st = run_until("Илийский район, боралдай, ул. Ленина 1/2", "leftover")
+    assert st.fields["city"].value == "боралдай"
+    assert st.fields["city"].source == "string"
+
+
+def test_rural_okrug_is_consumed_without_field() -> None:
+    st = run_until("Илийский район, Байсеркенский СО, с. Байсерке, ул. Абая 5", "admin")
+    okrug = [t.text.lower() for t in st.tokens if t.used_by == "admin:okrug"]
+    assert okrug == ["байсеркенский", "со"]
+    assert st.fields["city"].value == "Байсерке"
+
+
+def test_historical_province_is_not_a_conflict() -> None:
+    """Переделы областей: «ВКО, г. Семей» после 2022 года не конфликт, confidence за это не штрафуется."""
+    st = run_until("Восточно-Казахстанская область, г. Семей, ул. Абая 5", "reference")
+    assert "city_province_conflict" not in st.flags
+
+
+def test_yaml_bool_in_list_is_rejected(tmp_path: Path) -> None:
+    """Голое no/yes в списке YAML читается как bool: загрузчик должен остановиться, а не молча взять False."""
+    from jana_address.rules_loader import _read
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("noise: [адрес, no, rk]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="кавычки"):
+        _read(bad)
+
+
+def test_latin_aliases_do_not_shadow_cyrillic_abbreviations() -> None:
+    """«st»/«str» латиницей это улица, но кириллические «ст» и «стр» остаются станцией и строением."""
+    from jana_address.rules_loader import get_rules
+
+    r = get_rules()
+    assert r.street_types.get("st") is not None
+    assert "стр" in r.building_part
+    assert r.street_types.get("стр") is None or "стр" in r.building_part
+    st_type = r.street_types.get("ст")
+    assert st_type is None or st_type.canonical != "улица"
+
+
+def test_confidence_terms_explain_the_score() -> None:
+    """Слагаемые в trace объясняют итог без остатка: база + баллы = logit, sigmoid(logit) в границах = confidence."""
+    import math
+
+    from jana_address import engine
+
+    for raw in ["город Алматы/Алматы қаласы, Мкр Аксай 3а, 59, кв 70", "xyz qwe 17", "Туран 55/6 магазин береке"]:
+        r = engine.parse_one({"id": "c", "raw_address": raw}, explain=True)
+        c = next(t for t in r["trace"] if t["step"] == "confidence")["changes"]
+        z = c["intercept"] + sum(t["points"] for t in c["terms"])
+        assert abs(z - c["logit"]) < 0.01, raw
+        lo, hi = c["bounds"]
+        p = min(hi, max(lo, 1 / (1 + math.exp(-z))))
+        assert abs(p - r["confidence"]) < 0.002, raw
+        assert all(abs(t["w"] * t["x"] - t["points"]) < 0.002 for t in c["terms"])

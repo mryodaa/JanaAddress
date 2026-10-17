@@ -55,6 +55,8 @@ POSTFIX_FOLDS = frozenset(
 
 
 _DASH_NUM = re.compile(r"\d{1,2}[^\W\d_]?")
+# метки кандидата, который ещё может не стать улицей (освобождаются вместе с точкой после сокращения)
+PENDING_LABELS = frozenset({"street:pending", "marker:street"})
 # маркеры перекрёстка (они же предлоги ориентира в rules/landmarks.yaml)
 INTERSECTION = frozenset({"угол", "уг", "пересечение", "киылысы", "бурышы"})
 
@@ -113,6 +115,11 @@ class Street:
             or (text in r.building_part and len(text) > 1)
         )
 
+    def _is_strict_stop(self, text: str) -> bool:
+        """Стоп-слова, которые не бывают названием и сразу за маркером: детали, типы улиц, предлоги ориентира."""
+        r = self.rules
+        return text in r.details or text in r.street_types or text in r.lm_prepositions
+
     def _collect(
         self,
         state: ParseState,
@@ -141,6 +148,16 @@ class Street:
                     j += direction
                     continue
                 stop = self.is_stop_word(t.text, noise=False)
+                # первое слово сразу за явным маркером это название, даже если совпало с брендом или объектом:
+                # «ул. Береке», «мкр Мега», «ул. Мечта» (ориентир без маркера улицы, «магазин береке», не трогаем)
+                if (
+                    stop
+                    and direction > 0
+                    and not out
+                    and (t.text in self.rules.lm_brands or t.text in self.rules.lm_objects)
+                    and not self._is_strict_stop(t.text)
+                ):
+                    stop = False
                 # латиница в названиях ЖК («ЖК EXPO Boulevard», «Luxury Park»): не тип улицы и не ориентир
                 if stop and area and t.text.isascii() and t.text not in self.rules.details:
                     stop = False
@@ -273,8 +290,12 @@ class Street:
         toks = state.tokens
         segs = segments(toks)
         cands: list[Cand] = []
+        # «есть ли свободное число после маркера»: маркеры идут слева направо, а занятое число в этом проходе
+        # свободным уже не станет, поэтому указатель по числам только движется вперёд (без полного скана на маркер)
+        nums = [i for s in segs for i in s if toks[i].kind == "num"]
+        ni = 0
 
-        for si, seg in enumerate(segs):
+        for seg in segs:
             k = 0
             while k < len(seg):
                 t = toks[seg[k]]
@@ -289,7 +310,9 @@ class Street:
                 assert isinstance(st, StreetType)
                 marker = seg[k : k + n]
                 area = st.kind in ("area", "numbered")
-                later = any(toks[i].kind == "num" and toks[i].free for s in segs[si:] for i in s if i > marker[-1])
+                while ni < len(nums) and (nums[ni] <= marker[-1] or not toks[nums[ni]].free):
+                    ni += 1
+                later = ni < len(nums)
                 after = self._collect(state, seg, k + n, +1, area, later, st.canonical == "жилой комплекс")
                 before = self._collect(state, seg, k - 1, -1, area, later)
                 # реестровый формат «ШУХОВА (УЛИЦА), 37Б»: тип в скобках после названия
@@ -366,10 +389,12 @@ class Street:
         # кандидаты, не ставшие ни улицей, ни living_area, возвращаются в свободные
         for c in cands:
             if c is not main and c is not living:
-                for i in c.name:
+                for i in (*c.name, *c.marker):
                     toks[i].used_by = None
-                for i in c.marker:
-                    toks[i].used_by = None
+                    # точку после сокращения mark() занял вместе с ним: освобождаем и её
+                    nxt = i + 1
+                    if nxt < len(toks) and toks[nxt].text == "." and toks[nxt].used_by in PENDING_LABELS:
+                        toks[nxt].used_by = None
         if main is not None and main.name:
             state.ref_ids["street_end"] = max(main.name)
         state.trace.append(tr)

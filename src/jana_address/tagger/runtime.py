@@ -140,7 +140,7 @@ class Tagger:
 def load(model_path: Path, meta_path: Path) -> Tagger | None:
     """Модель или None: нет файлов, нет onnxruntime, несовместимая meta. Сервис тогда работает на правилах."""
     if not model_path.exists() or not meta_path.exists():
-        log.warning("теггер не найден (%s), работаем на правилах", model_path)
+        log.error("теггер не найден (%s), работаем только на правилах: метрика ниже", model_path)
         return None
     try:
         return Tagger(model_path, meta_path)

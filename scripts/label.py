@@ -4,7 +4,10 @@
 
 Берёт случайные строки из train.json, показывает предразбор текущего пайплайна, оператор принимает
 его (Enter) или правит поля. Результат дописывается в dev_gold.json (data/ в .gitignore).
-Работу можно прерывать: уже размеченные id пропускаются. Команда может делить набор по --shard i/k.
+Работу можно прерывать: уже размеченные id пропускаются. Команда может делить набор по --shard i/k: каждая доля
+пишется в свой файл (dev_gold.shard-i-of-k.json), чтобы параллельная разметка не затирала чужую работу; потом
+`--merge` собирает доли в dev_gold.json. --blank начинает с пустых полей: предразбор не подсказывает ответ
+(иначе эталон тянется к ответу парсера и завышает его оценку).
 
 Команды в строке ввода:
   Enter                         принять всё как есть
@@ -41,6 +44,22 @@ def save_gold(path: Path, gold: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(gold, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def shard_path(gold: Path, si: int, sk: int) -> Path:
+    return gold if sk == 1 else gold.with_name(f"{gold.stem}.shard-{si}-of-{sk}{gold.suffix}")
+
+
+def merge(gold: Path) -> int:
+    """Доли разметки в основной файл: по id, повторный id из доли заменяет прежний."""
+    by_id = {str(g.get("id")): g for g in load_gold(gold)}
+    parts = sorted(gold.parent.glob(f"{gold.stem}.shard-*-of-*{gold.suffix}"))
+    for part in parts:
+        for g in load_gold(part):
+            by_id[str(g.get("id"))] = g
+    save_gold(gold, list(by_id.values()))
+    print(f"собрано {len(by_id)} записей из {len(parts)} долей -> {gold}")
+    return 0
+
+
 def show(rec: dict[str, Any], pred: dict[str, Any], i: int, total: int) -> None:
     print("\n" + "=" * 80)
     print(f"[{i}/{total}] id={rec.get('id')}  conf={pred['confidence']}")
@@ -60,8 +79,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--shard", default="0/1", help="i/k: размечать только свою долю")
     ap.add_argument("--annotator", default="")
+    ap.add_argument("--blank", action="store_true", help="начинать с пустых полей, без предразбора")
+    ap.add_argument("--merge", action="store_true", help="собрать доли --shard в основной файл и выйти")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    if args.merge:
+        return merge(args.gold)
 
     records, _ = io_format.loads(args.train.read_bytes())
     rng = random.Random(args.seed)
@@ -69,20 +92,28 @@ def main(argv: list[str] | None = None) -> int:
     si, sk = (int(x) for x in args.shard.split("/"))
     sample = [r for j, r in enumerate(sample) if j % sk == si]
 
-    gold = load_gold(args.gold)
-    done = {str(g.get("id")) for g in gold}
+    out = shard_path(args.gold, si, sk)
+    gold = load_gold(out)
+    # уже размеченное и в основном файле, и в своей доле
+    done = {str(g.get("id")) for g in gold} | {str(g.get("id")) for g in load_gold(args.gold) if out != args.gold}
     todo = [r for r in sample if str(r.get("id")) not in done]
     print(f"Размечено: {len(done)}, осталось в выборке: {len(todo)}")
 
     for i, rec in enumerate(todo, 1):
         pred = engine.parse_one(rec, explain=True)
-        show(rec, pred, i, len(todo))
+        if not args.blank:  # с --blank предразбор не показываем вовсе
+            show(rec, pred, i, len(todo))
         item: dict[str, Any] = {"id": rec.get("id"), "raw_address": rec.get("raw_address")}
         for f in PARSED_FIELDS:
-            item[f] = pred.get(f)
-        item["_from_reference"] = [
-            f for f, v in pred.get("fields", {}).items() if v.get("source") not in (None, "string")
-        ]
+            item[f] = None if args.blank else pred.get(f)
+        item["_from_reference"] = (
+            []
+            if args.blank
+            else [f for f, v in pred.get("fields", {}).items() if v.get("source") not in (None, "string")]
+        )
+        if args.blank:
+            pred = {**pred, **item}
+            show(rec, pred, i, len(todo))
         while True:
             cmd = input("> ").strip()
             if cmd in ("q", "s", ""):
@@ -106,9 +137,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.annotator:
             item["_annotator"] = args.annotator
         gold.append(item)
-        save_gold(args.gold, gold)
-    save_gold(args.gold, gold)
-    print(f"Сохранено {len(gold)} записей в {args.gold}")
+        save_gold(out, gold)
+    save_gold(out, gold)
+    print(f"Сохранено {len(gold)} записей в {out}")
     return 0
 
 

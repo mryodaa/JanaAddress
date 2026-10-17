@@ -79,7 +79,9 @@ class Reference:
                 found = [e for e in found if e.city_id == city.id] or ([] if city.kind == "republican" else found)
             elif prov:
                 found = [e for e in found if e.province_id == prov.id] or found
-            if len(found) == 1 or (found and len({e.city_id or e.province_id for e in found}) == 1):
+            # место района: город или область; id из разных таблиц не смешиваем (город 5 и область 5 разные)
+            places = {("city", e.city_id) if e.city_id else ("province", e.province_id) for e in found}
+            if len(found) == 1 or (found and len(places) == 1):
                 dist = found[0]
         # район противоречит городу
         if dist and city and dist.kind == "city" and dist.city_id != city.id:

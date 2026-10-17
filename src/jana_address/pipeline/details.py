@@ -126,13 +126,13 @@ class Details:
         direction = +1 if scores[+1] >= scores[-1] else -1
         # ничья обычно означает «Абая 10 кв 5» (маркер «до»); сомнительна, только если строка
         # заканчивается маркером без числа после него
-        last_word = next((t for t in reversed(toks) if t.kind in ("word", "num")), None)
+        last_i = next((i for i in range(len(toks) - 1, -1, -1) if toks[i].kind in ("word", "num")), None)
         if (
             rest
             and scores[+1] == scores[-1] > 0
-            and last_word is not None
-            and last_word.kind == "word"
-            and any(markers[mi].last == toks.index(last_word) for mi in rest)
+            and last_i is not None
+            and toks[last_i].kind == "word"
+            and any(markers[mi].last == last_i for mi in rest)
         ):
             state.flags.add("ambiguous_orientation")
         assigned.update(plans[direction])
@@ -155,7 +155,9 @@ class Details:
                 tr.notes.append(f"маркер {m.field} без номера")
                 continue
             if m.field in state.fields:
+                # повтор маркера («кв 12, кв. 15»): число занято повтором, иначе его подберёт дом
                 state.flags.add("extra_numbers")
+                toks[j].used_by = f"extra:{m.field}"
                 continue
             value, span = house_value(state, toks[j])
             state.set_field(m.field, value, span=span)

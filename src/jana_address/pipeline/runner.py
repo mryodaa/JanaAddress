@@ -121,7 +121,10 @@ def parse_record(
             out.update(
                 {
                     "fields": {},
-                    "trace": [{"step": "error", "ms": 0, "changes": {}, "notes": [repr(exc)]}],
+                    # наружу только тип исключения: текст и трейс в логе сервера
+                    "trace": [
+                        {"step": "error", "ms": 0, "changes": {}, "notes": [f"ошибка разбора: {type(exc).__name__}"]}
+                    ],
                     "unparsed": [],
                 }
             )

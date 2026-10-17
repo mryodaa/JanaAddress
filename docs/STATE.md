@@ -2,7 +2,21 @@
 
 Снимок на 2026-10-16. Документ для следующей сессии Claude: что есть, что работает, где слабые места, что делать дальше. Правила работы с репо в `CLAUDE.md` (обязательно), обзор в `README.md`, схема пайплайна в `docs/ARCHITECTURE.md`, справочник в `docs/REFERENCE.md`, решения по неоднозначностям в `docs/QUESTIONS.md`.
 
-**Важно для сессии:** в этом репо **не коммитить**, изменения оставлять в рабочей копии (просьба пользователя). В git один коммит `6232415 first commit`; всё, что описано ниже в разделе «Незакоммиченные правки», лежит только в рабочей копии.
+**Важно для сессии:** без явной просьбы пользователя не коммитить, изменения оставлять в рабочей копии. Разделы ниже писались в разные дни: актуальное сверху (раздел «Обновление 2026-10-18»), нижние разделы это снимки на свою дату.
+
+## 000. Обновление 2026-10-18: аудит и исправления
+
+* **Пайплайн:** 12 шагов правил (`layout → clean → tokenize → split_bilingual → parts → admin → details → street → landmark → numbers → building → leftover`) + `tagger → arbiter` (режим `on` по умолчанию) + `reference → confidence`. Таблица шагов ниже (раздел про 11 шагов) устарела, актуально в `docs/ARCHITECTURE.md`.
+* **Порог неуверенных** 0.95 (`JANA_UNCERTAIN_THRESHOLD`), confidence логистический (`rules/confidence.yaml`, подбирается `training/fit_confidence.py`).
+* **Справочник** OSM + КАТО (раздел 00 ниже), ~75 МБ.
+* **Исправлено по аудиту** (без переобучения модели и пересборки справочника, каждая правка разбора через eval на dev, просадок нет):
+  * одиночный суррогат в записи ронял весь ответ батча;
+  * гонка в арбитре (состояние записи в атрибуте общего объекта);
+  * квадратичные циклы в `parts.py`/`street.py` на длинной строке;
+  * «ул. Береке 5» (бренд после маркера), «кв 12, кв. 15», «Абая 10.30» (время), кавычка ориентира, «со» как предлог, bidi в значениях, `no` в YAML, коллизии транслита латинских алиасов;
+  * числовые `id` возвращаются как пришли (`io_format.RawFloat`).
+* **API/UI:** список записей страницами с сортировкой и поиском на сервере (`sort`, `dir`, `offset`, `limit`, `/records/position`), счётчики сводки по «эффективной» уверенности (исправленная или подтверждённая запись не неуверенная), одна очередь разбора пакетов с продолжением после перезапуска, WAL в `edits.sqlite`, JSON 404 для неизвестных `/api/*`, 409 на экспорт до конца разбора. UI: черновик не теряется при смене фильтра и уходе, error boundary, доступность диалогов, переводы kk/en.
+* **Проверки:** `pytest` 440+ passed; ruff, mypy strict, tsc, biome чистые; fuzz 20 000 строк без нарушений.
 
 ## 00. Обновление 2026-10-17: справочник из OSM по максимуму + КАТО
 
@@ -121,10 +135,10 @@ src/jana_address/
   io_format.py        loads/dumps: массив | {"records": [...]} | JSONL, форма ответа = форма входа; decode: utf-8/utf-16 BOM/cp1251
   engine.py           синглтон Pipeline на процесс, parse_many / parse_one
   cli.py              python -m jana_address.cli IN OUT [--explain]
-  config.py           JANA_REFERENCE_DB, JANA_EDITS_DB, JANA_RULES_DIR, JANA_STATIC_DIR, JANA_UNCERTAIN_THRESHOLD=0.6
+  config.py           JANA_REFERENCE_DB, JANA_EDITS_DB, JANA_RULES_DIR, JANA_STATIC_DIR, JANA_UNCERTAIN_THRESHOLD=0.95
   rules_loader.py     загрузка rules/*.yaml в Rules, PhraseIndex (многословные фразы по fold)
   sessions.py         сессии UI в var/edits.sqlite (правки оператора, экспорт)
-  pipeline/           11 шагов, см. ниже
+  pipeline/           12 шагов правил + tagger/arbiter + reference/confidence (docs/ARCHITECTURE.md)
   reference/          normalize.py (fold/norm/translit, только для сравнения), store.py (read-only SQLite + индексы в памяти)
   rules/              admin.yaml, markers.yaml, street_types.yaml, landmarks.yaml, confidence.yaml
   api/                FastAPI: app.py, routes_parse.py, routes_sessions.py
@@ -132,13 +146,13 @@ src/jana_address/
 scripts/              eval.py, gen_dev.py, fuzz.py, analyze_train.py, label.py, benchmark.py, export_openapi.py,
                       vendor_wheels.py, export_image.sh, build_reference/ (download, osm_extract, assign_districts, kato, build_sqlite, seed/admin.yaml)
 frontend/             React + Vite + TS strict + Tailwind v4 + TanStack; компоненты Upload, SessionView, RecordsTable, Editor, Trace, CheckOne, Summary
-reference/            reference.sqlite (61 МБ, в образе), coverage.json
+reference/            reference.sqlite (~75 МБ, в образе), coverage.json
 data/                 в .gitignore: dev_synth.json, dev_synth_s2.json, dev_chaos.json, dev_chaos_holdout.json (+ out_*)
 var/                  edits.sqlite, reference.seed.sqlite (справочник только из ядра), временные json
 vendor/wheels         Linux-wheels для офлайн docker build
 ```
 
-### Пайплайн (`pipeline/steps.py`)
+### Пайплайн (`pipeline/steps.py`, снимок 2026-10-16: актуальный порядок шагов в разделе 000 и docs/ARCHITECTURE.md)
 
 Шаги общаются только через `ParseState` (`pipeline/base.py`): `raw` (не меняется), `text` (очищенный) + `offsets` (text → raw), `tokens` (`kind`: word/num/sep/punct, `used_by`: кто забрал токен, `glued_left`), `fields` (`FieldValue`: value, source, span в raw, score), `flags` (для confidence), `ref_ids` (id сущностей справочника, найденных по ходу: city, province, district, street_end), `trace`.
 
@@ -162,7 +176,7 @@ vendor/wheels         Linux-wheels для офлайн docker build
 
 ### Справочник (`reference/reference.sqlite`)
 
-Собран 2026-10-16: ручное ядро `seed/admin.yaml` + OSM Geofabrik. КАТО **не подключён** (нет файла классификатора). 20 областей/городов респ. значения, 203 района, 6900 населённых пунктов, 5067 мкр/ЖК, 57 889 улиц, 1.18 млн домов, 93 931 алиас. Районы по полигонам есть только у Алматы, Астаны, Шымкента, Тараза; у прочих областных центров district по дому не восстанавливается. Казахских форм городов в алиасах мало (gen_dev держит свой словарь KZ_CITY). Пересборка: `docs/REFERENCE.md`.
+Снимок 2026-10-16 (с 2026-10-17 подключён КАТО, см. раздел 00): ручное ядро `seed/admin.yaml` + OSM Geofabrik. 20 областей/городов респ. значения, 203 района, 6900 населённых пунктов, 5067 мкр/ЖК, 57 889 улиц, 1.18 млн домов, 93 931 алиас. Районы по полигонам есть только у Алматы, Астаны, Шымкента, Тараза; у прочих областных центров district по дому не восстанавливается. Казахских форм городов в алиасах мало (gen_dev держит свой словарь KZ_CITY). Пересборка: `docs/REFERENCE.md`.
 
 `Store`: сущности и алиасы в памяти, `lookup` (точно/fold/транслит), `fuzzy` (rapidfuzz ratio ≥ 88), `streets(name, city_id)`, `street_fuzzy` (≥ 90, внутри города, ключ ≥ 5 символов), `house(street_id, number)` из SQLite.
 
@@ -170,7 +184,7 @@ vendor/wheels         Linux-wheels для офлайн docker build
 
 `/api/v1`: `POST /parse/batch` (JSON-тело или multipart `file`, `?explain=true`), `POST /parse` (одна строка, с explain), `GET /health`, `GET /config`, `POST/GET /sessions`, `GET /sessions/{sid}`, `GET /sessions/{sid}/records[/{idx}]`, `PATCH /sessions/{sid}/records/{idx}`, `GET /sessions/{sid}/export`, `DELETE /sessions/{sid}`. UI отдаётся из `static/` на `/`. OpenAPI в `openapi.json`; после правки моделей: `scripts/export_openapi.py` + `npm run gen:api`.
 
-Docker: `Dockerfile` (python:3.12-slim, `pip --no-index` из `vendor/wheels`, один uvicorn worker, healthcheck), `docker-compose.yml`. Офлайн-сборка проверена: `docker build --no-cache --network=none` проходит, healthy за ~6 с, 1000 записей через API за 0.4 с.
+Docker: `Dockerfile` (python:3.12-slim, `pip --no-index` из `vendor/wheels`, один uvicorn worker, healthcheck), `docker-compose.yml`. Офлайн-сборка проверена: `docker build --no-cache --network=none` проходит, healthy за ~6 с, 1000 записей через API за 0.4 с (до теггера; с моделью 1–2 с).
 
 ## 3. Проверки (прогнаны при написании)
 

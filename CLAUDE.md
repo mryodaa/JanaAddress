@@ -6,8 +6,8 @@
 
 ```bash
 .venv/Scripts/python -m pytest -q                 # все тесты (~1 с)
-.venv/Scripts/ruff check src scripts tests && .venv/Scripts/ruff format src scripts tests
-.venv/Scripts/mypy                                # strict
+.venv/Scripts/ruff check src scripts tests training && .venv/Scripts/ruff format src scripts tests training
+.venv/Scripts/mypy && .venv/Scripts/mypy scripts/eval.py scripts/fuzz.py   # strict; build_reference/synth без стабов shapely/openpyxl
 .venv/Scripts/python -m uvicorn jana_address.api.app:app --reload
 .venv/Scripts/python -m jana_address.cli IN.json OUT.json [--explain]
 .venv/Scripts/python scripts/eval.py PRED.json GOLD.json [--strict-fp] [--baseline OLD_PRED.json]
@@ -54,7 +54,7 @@ cd frontend && npm run build && npx biome check src                             
 * Строковое значение никогда не перезаписывается справочным (`ParseState.set_field`). Источник: `string` | `reference:osm:<house|street|polygon|point|poi>` | `reference:<seed|kato>` | `manual`.
 * Справочник: shapely/osmium/геометрия только в `scripts/build_reference/`, в рантайме только индексные запросы. Синтетика (gen_dev, gen_train_tagger, test_synth_spans) читает снапшот `reference/reference.synth_v1.sqlite` (`config.SYNTH_DB`), а не основной файл: иначе пересборка справочника сдвигает отложенные наборы и split unseen.
 * ЗАПРЕЩЕНО: сопоставление по id, кэш/таблица по целой строке, запоминание train.json. В справочнике только топонимы. Не ставить `lru_cache` на функции разбора целой строки (кэш по отдельным токенам/топонимам можно). Проверка: `tests/test_no_memorization.py`.
-* Никаких сетевых вызовов в рантайме. Сеть только в `scripts/build_reference/download.py`.
+* Никаких сетевых вызовов в рантайме. Сеть только в `scripts/build_reference/download.py`; исключения вне рантайма: `scripts/benchmark.py --api` (HTTP к своему сервису) и `scripts/vendor_wheels.py` (`pip download` колёс для офлайн-образа).
 * `data/` в .gitignore и .dockerignore. Строки train.json не копировать в тесты, фикстуры и коммиты.
 * Теггер только предлагает спаны: значение строкового поля всегда срез raw (`util.value_from`/`tidy_value`), canonical через справочник. Веса арбитра подбирать только на dev (dev_synth, dev_chaos, val, data/realish/*_dev), не на отложенных (dev_synth_s2, dev_chaos_holdout, dev_chaos_v2_holdout, dev_hard_holdout, unseen, data/realish/*_holdout). На *_holdout не смотреть ошибки, только итог. Seed 1, 2, 11, 99, 4242, 4343 заняты dev/отложенными наборами.
 * Не запускать тяжёлое параллельно с обучением: памяти мало, torch падает с access violation (есть `--resume`).

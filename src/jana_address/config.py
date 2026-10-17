@@ -37,5 +37,8 @@ DEFAULT_TAGGER_MODE = "on"  # решение по scripts/compare_modes.py, docs
 def tagger_mode() -> str:
     """off: без модели; shadow: модель только в explain/логах; on: арбитраж с правилами;
     only: поля только из модели (для оценки eval --mode tagger). Читается при сборке пайплайна."""
-    mode = os.environ.get("JANA_TAGGER", DEFAULT_TAGGER_MODE).strip().lower()
-    return mode if mode in TAGGER_MODES else DEFAULT_TAGGER_MODE
+    mode = os.environ.get("JANA_TAGGER", DEFAULT_TAGGER_MODE).strip().lower() or DEFAULT_TAGGER_MODE
+    # опечатка в режиме не должна молча превращаться в режим по умолчанию: падаем при сборке пайплайна
+    if mode not in TAGGER_MODES:
+        raise ValueError(f"JANA_TAGGER={mode!r}: ожидается одно из {', '.join(TAGGER_MODES)}")
+    return mode

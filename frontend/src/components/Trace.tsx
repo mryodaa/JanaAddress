@@ -1,9 +1,11 @@
 import { type ReactNode, useState } from "react";
 import type { FieldName, StepTrace } from "../api/client";
 import { useI18n } from "../i18n";
+import { confModelFrom } from "../lib/confidence";
 import { FIELD_COLORS, visible } from "../lib/fields";
 import {
   asField,
+  numericParts,
   parseArbiter,
   parseDisputes,
   parseLayout,
@@ -11,7 +13,8 @@ import {
   parseTokens,
   quoted,
 } from "../lib/trace";
-import { DEMO_TEXTS } from "./demo/texts";
+import { ConfidenceExplain } from "./ConfidenceExplain";
+import { DEMO_TEXTS, confPartLabel } from "./demo/texts";
 import { FieldDot, Skeleton, SourceTag } from "./ui";
 
 // служебные ключи changes, которые показываются отдельно или только в технических деталях
@@ -89,7 +92,13 @@ function FieldChips({ changes }: { changes: FieldChange[] }) {
   );
 }
 
-function StepBody({ s }: { s: StepTrace }) {
+/** Вся запись для шагов, которым нужен контекст (уверенность объясняет признаки по trace и значениям полей). */
+interface TraceCtx {
+  trace: StepTrace[];
+  values: Partial<Record<FieldName, string | null | undefined>>;
+}
+
+function StepBody({ s, threshold, ctx }: { s: StepTrace; threshold: number; ctx: TraceCtx }) {
   const { t, fieldLabels, language } = useI18n();
   const notes = s.notes ?? [];
   const ch = (s.changes ?? {}) as Record<string, unknown>;
@@ -228,15 +237,25 @@ function StepBody({ s }: { s: StepTrace }) {
       );
     }
     case "confidence": {
-      const parts = Object.entries((ch.parts ?? {}) as Record<string, number>);
+      const model = confModelFrom(ch, typeof ch.confidence === "number" ? ch.confidence : 0);
+      if (model)
+        return (
+          <ConfidenceExplain
+            model={model}
+            threshold={threshold}
+            trace={ctx.trace}
+            values={ctx.values}
+            dense
+          />
+        );
+      // старые сессии без слагаемых: вклады в проценты, как было
+      const parts = numericParts(ch.parts);
       const labels = DEMO_TEXTS[language].confParts;
       return (
         <div className="grid max-w-md gap-1">
           {parts.map(([k, v]) => (
             <div key={k} className="flex items-center gap-2 text-xs">
-              <span className="min-w-0 flex-1 truncate text-ink-2">
-                {labels[k] ?? k.replace(/^(flag|bonus):/, "").replace(/_/g, " ")}
-              </span>
+              <span className="min-w-0 flex-1 truncate text-ink-2">{confPartLabel(labels, k)}</span>
               <span
                 className={`font-mono font-semibold tabular-nums ${v >= 0 ? "text-brand-700" : "text-danger"}`}
               >
@@ -299,7 +318,7 @@ function DetailsBody({ s }: { s: StepTrace }) {
   );
 }
 
-function Step({ s, name }: { s: StepTrace; name: string }) {
+function Step({ s, name, threshold, ctx }: { s: StepTrace; name: string; threshold: number; ctx: TraceCtx }) {
   const { t, stepHints } = useI18n();
   const [open, setOpen] = useState(false);
   const hasDetails = (s.notes ?? []).length > 0 || Object.keys(s.changes ?? {}).some((k) => k !== "features");
@@ -334,7 +353,7 @@ function Step({ s, name }: { s: StepTrace; name: string }) {
           )}
         </div>
         <div className="min-w-0 @2xl:pt-0.5">
-          <StepBody s={s} />
+          <StepBody s={s} threshold={threshold} ctx={ctx} />
           {hasDetails && (
             <div className="reveal" data-open={open}>
               <div>
@@ -350,7 +369,17 @@ function Step({ s, name }: { s: StepTrace; name: string }) {
 
 type Item = { kind: "step"; s: StepTrace } | { kind: "quiet"; steps: StepTrace[] };
 
-export function Trace({ trace }: { trace: StepTrace[] }) {
+export function Trace({
+  trace,
+  threshold = 0.95,
+  values = {},
+}: {
+  trace: StepTrace[];
+  threshold?: number;
+  /** итоговые значения полей записи: для подписей в объяснении уверенности */
+  values?: Partial<Record<FieldName, string | null | undefined>>;
+}) {
+  const ctx: TraceCtx = { trace, values };
   const { t, stepLabels } = useI18n();
   const [showQuiet, setShowQuiet] = useState(false);
 
@@ -393,7 +422,7 @@ export function Trace({ trace }: { trace: StepTrace[] }) {
                 >
                   <span className="absolute top-1 left-[3px] h-2.5 w-2.5 rounded-full border-2 border-line bg-white" />
                   <span className="min-w-0 flex-1 truncate">
-                    {name(s)} <span className="text-ink-3/70">· {t("traceQuietShort")}</span>
+                    {name(s)} <span className="text-ink-3">· {t("traceQuietShort")}</span>
                   </span>
                   <span className="font-mono text-[10px] tabular-nums">{s.ms.toFixed(2)}</span>
                 </li>
@@ -416,7 +445,7 @@ export function Trace({ trace }: { trace: StepTrace[] }) {
               </li>
             )
           ) : (
-            <Step key={it.s.step} s={it.s} name={name(it.s)} />
+            <Step key={it.s.step} s={it.s} name={name(it.s)} threshold={threshold} ctx={ctx} />
           ),
         )}
       </ol>

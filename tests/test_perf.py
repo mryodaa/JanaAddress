@@ -82,3 +82,15 @@ def test_1000_latin_and_layout_records_fast() -> None:
     assert len(out) == 1000 and out[0]["street_name"] == "абая"
     print(f"\n1000 записей латиницей и в раскладке: {dt:.2f} с")
     assert dt < 30
+
+
+@pytest.mark.perf
+@pytest.mark.parametrize("raw", ["." * 100_000 + "a", "ул Абая " * 12_000], ids=["dots", "street_markers"])
+def test_very_long_record_is_linear(raw: str) -> None:
+    """Длинная мусорная запись не должна занимать минуты: раньше два цикла были квадратичными (100 КБ точек ~ мин)."""
+    engine.get_pipeline()
+    t0 = time.perf_counter()
+    out = engine.parse_one({"id": "long", "raw_address": raw}, explain=False)
+    dt = time.perf_counter() - t0
+    assert out["raw_address"] == raw
+    assert dt < 10, f"{len(raw)} символов за {dt:.1f} с"

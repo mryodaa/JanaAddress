@@ -1,7 +1,7 @@
 """Шаг 4. Область, город, район по маркерам и словарю справочника (рус/каз/лат, дубли, район вместо города).
 
-Значения отдаются в каноническом виде справочника (docs/QUESTIONS.md, Q9). Исключение: район,
-написанный по-русски, отдаётся как в строке без слова «район», потому что метрика сравнивает его со строкой.
+Город и район отдаются как написаны в строке, без служебного слова (docs/QUESTIONS.md, Q22, util.as_written):
+метрика сравнивает их со строкой. Справочник нужен для привязки (id) и для полей, которых в строке нет.
 """
 
 from __future__ import annotations
@@ -220,6 +220,12 @@ class Admin:
                 m = match_phrase(state, r.rural_okrug, seg, k)  # type: ignore[arg-type]
                 if m and state.tokens[seg[k]].free:
                     n = m[1]
+                    # голое «со» это обычно предлог («рядом со школой»); сокращение округа пишут заглавными: «СО»
+                    t0 = state.tokens[seg[k]]
+                    if n == 1 and t0.text == "со":
+                        s0, e0 = state.orig_span(t0.start, t0.end)
+                        if state.raw[s0:e0] != "СО":
+                            continue
                     before, after = self._words_around(state, seg, k, n)
                     name = before[-1:] if before else after[:1]
                     mark(state, seg[k : k + n] + name, "admin:okrug")

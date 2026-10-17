@@ -1,21 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { type ExplainRecord, FIELD_NAMES, api } from "../api/client";
 import { useI18n } from "../i18n";
+import { confModel } from "../lib/confidence";
+import { errorText } from "../lib/errors";
 import { useDebounced, usePresence } from "../lib/motion";
+import { outputJson, useCopy } from "../lib/output";
+import { ConfidenceExplain } from "./ConfidenceExplain";
 import { useToast } from "./Toast";
+import { DEMO_TEXTS, fmt } from "./demo/texts";
 import { IconAlert, IconCheck, IconChevronRight, IconCopy } from "./icons";
 import {
   BusyBar,
   Button,
   Card,
   ConfidenceBadge,
+  Disclosure,
   FieldDot,
   Highlighted,
   Legend,
   Skeleton,
   SourceTag,
   TextInput,
+  Unparsed,
 } from "./ui";
 
 const EXAMPLES = [
@@ -26,24 +33,17 @@ const EXAMPLES = [
   "Илийский район, Боралдай, ул. Ленина 1/2",
 ];
 
-// то же, что уходит в экспорт: без trace и пояснений
-function outputJson(r: ExplainRecord): string {
-  const out: Record<string, unknown> = { id: r.id, raw_address: r.raw_address };
-  for (const f of FIELD_NAMES) out[f] = r[f] ?? null;
-  out.confidence = r.confidence;
-  return JSON.stringify(out, null, 2);
-}
-
 export function CheckOne({ threshold }: { threshold: number }) {
-  const { t, fieldLabels } = useI18n();
+  const { t, fieldLabels, language } = useI18n();
   const toast = useToast();
   // старт с пустого поля: сначала видны примеры, после ввода они плавно сворачиваются
   const [text, setText] = useState("");
   // разбор на лету с паузой; Enter и клик по примеру разбирают сразу
   const live = useDebounced(text, 400);
   const [forced, setForced] = useState("");
+  const [whyOpen, setWhyOpen] = useState(false);
   const query = (forced === text ? text : live).trim();
-  const [copied, setCopied] = useState(false);
+  const { copied, copy: copyText } = useCopy();
 
   const m = useQuery({
     queryKey: ["parse", query],
@@ -59,22 +59,12 @@ export function CheckOne({ threshold }: { threshold: number }) {
   const presence = usePresence(!!r, 180);
   const shown = r ?? (presence.mounted ? lastR.current : undefined);
   const showExamples = !text.trim();
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
+  const conf = shown ? confModel(shown.trace, shown.confidence) : null;
 
   async function copy() {
     if (!r) return;
-    try {
-      await navigator.clipboard.writeText(outputJson(r));
-      setCopied(true);
-      toast(t("copied"));
-    } catch {
-      toast(t("copyFailed"), "error");
-    }
+    if (await copyText(outputJson(r))) toast(t("copied"));
+    else toast(t("copyFailed"), "error");
   }
 
   return (
@@ -120,7 +110,7 @@ export function CheckOne({ threshold }: { threshold: number }) {
         {m.error && (
           <div className="mt-3 inline-flex animate-fade-up items-center gap-2 rounded-xl bg-danger-50 px-3 py-2 text-sm text-danger">
             <IconAlert className="h-4 w-4 shrink-0" />
-            {m.error.message}
+            {errorText(m.error, t, language)}
           </div>
         )}
       </Card>
@@ -167,20 +157,28 @@ export function CheckOne({ threshold }: { threshold: number }) {
                     {fieldLabels[f]}
                   </dt>
                   <dd className="min-w-0 text-sm font-medium break-words">
-                    {shown[f] ?? <span className="font-mono text-xs font-normal text-line">null</span>}
+                    {shown[f] ?? <span className="font-mono text-xs font-normal text-ink-3">null</span>}
                     <SourceTag source={shown.fields?.[f]?.source} />
                   </dd>
                 </div>
               ))}
             </dl>
-            {(shown.unparsed ?? []).length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-ink-2">
-                <span>{t("unparsed")}</span>
-                {(shown.unparsed ?? []).map((u) => (
-                  <span key={u} className="rounded-md bg-danger-50 px-1.5 py-px font-mono text-danger">
-                    {u}
-                  </span>
-                ))}
+            <Unparsed items={shown.unparsed} className="mt-3" />
+            {/* почему такая уверенность: баллы признаков, сумма, порог */}
+            {conf && (
+              <div className="mt-4">
+                <Disclosure
+                  title={fmt(DEMO_TEXTS[language].cx.title, { pct: Math.round(shown.confidence * 100) })}
+                  open={whyOpen}
+                  onToggle={() => setWhyOpen((v) => !v)}
+                >
+                  <ConfidenceExplain
+                    model={conf}
+                    threshold={threshold}
+                    trace={shown.trace ?? undefined}
+                    values={shown}
+                  />
+                </Disclosure>
               </div>
             )}
             {/* объяснение по шагам живёт на «Демо»: туда с этим же адресом, показ стартует сам */}

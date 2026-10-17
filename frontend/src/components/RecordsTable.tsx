@@ -1,8 +1,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FIELD_NAMES, type FieldName, type RecordItem } from "../api/client";
+import { FIELD_NAMES, type FieldName, type RecordItem, type SortDir, type SortKey } from "../api/client";
 import { useI18n } from "../i18n";
-import { IconCheck, IconSearch } from "./icons";
+import { IconCheck, IconClock, IconSearch } from "./icons";
 import { Button, ConfidenceBadge, FieldDot, Highlighted, Legend, SourceTag } from "./ui";
 
 export interface Flash {
@@ -21,25 +21,25 @@ const TEMPLATE: Record<Mode, string> = {
   wide: "52px 64px minmax(0,1.7fr) minmax(0,1fr)",
   narrow: "40px minmax(0,1fr) 56px",
 };
+const ROW_H = 60;
 
 /** Поля, которых не видно в подсветке: источник не строка (справочник) или ручная правка. */
-export function addedFields(item: RecordItem): FieldName[] {
+function addedFields(item: RecordItem): FieldName[] {
   return FIELD_NAMES.filter((f) => {
     const src = item.fields[f]?.source;
     return item.edited.includes(f) || (item.record[f] != null && src != null && src !== "string");
   });
 }
 
-export type SortKey = "idx" | "confidence" | "raw" | "added";
 export interface Sort {
   key: SortKey;
-  dir: "asc" | "desc";
+  dir: SortDir;
 }
 
 /** Исходный порядок пакета: по номеру записи. Это «сортировки нет». */
 export const DEFAULT_SORT: Sort = { key: "idx", dir: "asc" };
 
-export function isDefaultSort(s: Sort): boolean {
+function isDefaultSort(s: Sort): boolean {
   return s.key === DEFAULT_SORT.key && s.dir === DEFAULT_SORT.dir;
 }
 
@@ -49,26 +49,6 @@ export function nextSort(s: Sort, key: SortKey): Sort {
   if (isDefaultSort(s) || s.key !== key) return first;
   if (key !== DEFAULT_SORT.key && s.dir === "asc") return { key, dir: "desc" };
   return DEFAULT_SORT;
-}
-
-/** Порядок строк таблицы; при равенстве по номеру записи, чтобы порядок был устойчивым. */
-export function sortItems(items: RecordItem[], sort: Sort, locale: string): RecordItem[] {
-  if (sort.key === "idx" && sort.dir === "asc") return items;
-  const coll = new Intl.Collator(locale, { sensitivity: "base", numeric: true });
-  const val: Record<SortKey, (it: RecordItem) => number | string> = {
-    idx: (it) => it.idx,
-    confidence: (it) => it.record.confidence,
-    raw: (it) => String(it.record.raw_address ?? "").trim(),
-    added: (it) => addedFields(it).length,
-  };
-  const get = val[sort.key];
-  const sign = sort.dir === "asc" ? 1 : -1;
-  return [...items].sort((a, b) => {
-    const x = get(a);
-    const y = get(b);
-    const c = typeof x === "string" && typeof y === "string" ? coll.compare(x, y) : Number(x) - Number(y);
-    return c ? c * sign : a.idx - b.idx;
-  });
 }
 
 function Added({ item }: { item: RecordItem }) {
@@ -133,10 +113,38 @@ function SortHead({
   );
 }
 
+function RowSkeleton({ mode }: { mode: Mode }) {
+  return (
+    <>
+      <div className="px-2.5 py-3">
+        <div className="skeleton h-3.5 w-6" />
+      </div>
+      {mode === "wide" && (
+        <div className="px-2.5 py-3">
+          <div className="skeleton h-5 w-11 rounded-full" />
+        </div>
+      )}
+      <div className="px-2.5 py-3">
+        <div className="skeleton h-3.5 w-4/5" />
+      </div>
+      <div className="px-2.5 py-3">
+        <div className="skeleton h-3.5 w-1/2" />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Таблица пакета. Строк может быть сколько угодно: виртуализатор знает только total, а записи приходят
+ * страницами по мере прокрутки (itemAt отдаёт undefined, пока страница не загружена: рисуется скелет).
+ */
 export function RecordsTable({
-  items,
-  selected,
+  total,
+  itemAt,
+  selectedIdx,
+  selectedPos,
   onSelect,
+  onRange,
   threshold,
   active,
   flash,
@@ -144,9 +152,13 @@ export function RecordsTable({
   sort,
   onSort,
 }: {
-  items: RecordItem[];
-  selected: number | null;
-  onSelect: (idx: number) => void;
+  total: number;
+  itemAt: (pos: number) => RecordItem | undefined;
+  selectedIdx: number | null;
+  selectedPos: number | null;
+  onSelect: (item: RecordItem, pos: number) => void;
+  /** видимый диапазон строк: какие страницы подгрузить */
+  onRange: (start: number, end: number) => void;
   threshold: number;
   active: boolean;
   flash: Flash | null;
@@ -170,18 +182,24 @@ export function RecordsTable({
   }, []);
 
   const virt = useVirtualizer({
-    count: items.length,
+    count: total,
     getScrollElement: () => parent.current,
-    estimateSize: () => 60,
+    estimateSize: () => ROW_H,
     overscan: 12,
     measureElement: (el) => el.getBoundingClientRect().height,
   });
-  // выбранная строка всегда в зоне видимости (навигация с клавиатуры)
+  const vis = virt.getVirtualItems();
+  const first = vis[0]?.index ?? 0;
+  const last = vis[vis.length - 1]?.index ?? 0;
   useEffect(() => {
-    if (selected == null) return;
-    const i = items.findIndex((it) => it.idx === selected);
-    if (i >= 0) virt.scrollToIndex(i, { align: "auto" });
-  }, [selected, items, virt]);
+    onRange(first, last);
+  }, [first, last, onRange]);
+
+  // выбранная строка всегда в зоне видимости (навигация с клавиатуры, в том числе через границу страницы)
+  useEffect(() => {
+    if (selectedPos == null || selectedPos >= total) return;
+    virt.scrollToIndex(selectedPos, { align: "auto" });
+  }, [selectedPos, total, virt]);
 
   // скрытая вкладка (display: none) может потерять прокрутку: запоминаем её и возвращаем при показе
   const offset = useRef(0);
@@ -201,6 +219,9 @@ export function RecordsTable({
       <div className="relative min-h-0 flex-1">
         <div
           ref={parent}
+          // biome-ignore lint/a11y/useSemanticElements: виртуальный список на div, <section> не подходит по вёрстке
+          role="region"
+          aria-label={t("recordsTableAria")}
           onScroll={(e) => {
             if (active) offset.current = e.currentTarget.scrollTop;
           }}
@@ -232,19 +253,34 @@ export function RecordsTable({
             )}
           </div>
           <div style={{ height: virt.getTotalSize(), position: "relative" }}>
-            {virt.getVirtualItems().map((v) => {
-              const it = items[v.index];
-              if (!it) return null;
-              const isSel = it.idx === selected;
+            {vis.map((v) => {
+              const it = itemAt(v.index);
+              if (!it) {
+                return (
+                  <div
+                    key={`s${v.index}`}
+                    aria-hidden="true"
+                    style={{ ...grid, height: ROW_H, transform: `translateY(${v.start}px)` }}
+                    className="absolute left-0 grid w-full border-b border-line-soft"
+                  >
+                    <RowSkeleton mode={mode} />
+                  </div>
+                );
+              }
+              const isSel = it.idx === selectedIdx;
               const isFlash = flash?.idx === it.idx;
-              const needsReview = !it.reviewed && !it.edited.length && it.record.confidence < threshold;
+              const skipped = !!it.skipped;
+              const needsReview =
+                !it.reviewed && !skipped && !it.edited.length && it.record.confidence < threshold;
               const stripe = isSel
                 ? "bg-brand-600"
                 : it.reviewed
                   ? "bg-brand-300"
-                  : needsReview
-                    ? "bg-warn"
-                    : "bg-transparent";
+                  : skipped
+                    ? "bg-ink-3/50"
+                    : needsReview
+                      ? "bg-warn"
+                      : "bg-transparent";
               const raw = <Highlighted raw={String(it.record.raw_address ?? "")} fields={it.fields} />;
               const badge = <ConfidenceBadge value={it.record.confidence} threshold={threshold} />;
               return (
@@ -252,11 +288,13 @@ export function RecordsTable({
                   key={isFlash ? `${it.idx}-${flash.at}` : it.idx}
                   data-index={v.index}
                   ref={virt.measureElement}
-                  onClick={() => onSelect(it.idx)}
-                  onKeyDown={(e) => e.key === "Enter" && onSelect(it.idx)}
-                  tabIndex={-1}
+                  aria-current={isSel || undefined}
+                  onClick={() => onSelect(it, v.index)}
+                  onKeyDown={(e) => e.key === "Enter" && onSelect(it, v.index)}
+                  // выбранная строка в порядке Tab: с клавиатуры до таблицы можно дойти и открыть запись Enter
+                  tabIndex={isSel || (selectedIdx == null && v.index === first) ? 0 : -1}
                   style={{ ...grid, transform: `translateY(${v.start}px)` }}
-                  className={`absolute left-0 grid w-full cursor-pointer border-b border-line-soft text-sm transition-colors duration-150 ${
+                  className={`absolute left-0 grid w-full cursor-pointer border-b border-line-soft text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600/40 ${
                     isSel ? "bg-brand-50" : "bg-white hover:bg-canvas"
                   } ${isFlash ? "animate-flash-ok" : ""}`}
                 >
@@ -269,8 +307,22 @@ export function RecordsTable({
                         <IconCheck
                           className={`h-3.5 w-3.5 text-brand-600 ${isFlash ? "animate-check-pop" : ""}`}
                         />
+                      ) : skipped ? (
+                        <IconClock
+                          className={`h-3.5 w-3.5 text-ink-3 ${isFlash ? "animate-check-pop" : ""}`}
+                        />
                       ) : null}
                       {it.idx + 1}
+                    </span>
+                    {/* статус строки цветом полоски, для скринридера текстом */}
+                    <span className="sr-only">
+                      {it.reviewed
+                        ? t("rowReviewed")
+                        : skipped
+                          ? t("rowSkipped")
+                          : needsReview
+                            ? t("rowNeedsReview")
+                            : ""}
                     </span>
                   </div>
                   {mode === "wide" && <div className={cell}>{badge}</div>}
@@ -297,7 +349,7 @@ export function RecordsTable({
             })}
           </div>
         </div>
-        {items.length === 0 && (
+        {total === 0 && (
           <div className="pointer-events-none absolute inset-x-0 top-10 bottom-0 grid place-items-center p-6">
             <div className="pointer-events-auto flex animate-fade-in flex-col items-center gap-3 text-center text-sm text-ink-2">
               <span className="grid h-12 w-12 place-items-center rounded-2xl bg-canvas text-ink-3">

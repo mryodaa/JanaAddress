@@ -79,6 +79,12 @@ export const IconCopy = (p: P) => (
     <path d="M5 15V6a2 2 0 0 1 2-2h8" />
   </Svg>
 );
+export const IconClock = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </Svg>
+);
 export const IconUndo = (p: P) => (
   <Svg {...p}>
     <path d="M9 14 4 9l5-5" />
@@ -108,10 +114,10 @@ export const IconAlert = (p: P) => (
     <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
   </Svg>
 );
-export const IconPin = (p: P) => (
+export const IconDatabase = (p: P) => (
   <Svg {...p}>
-    <path d="M12 21s-7-5.6-7-11.2A7 7 0 0 1 12 3a7 7 0 0 1 7 6.8C19 15.4 12 21 12 21z" />
-    <circle cx="12" cy="10" r="2.5" />
+    <ellipse cx="12" cy="5.5" rx="7" ry="2.5" />
+    <path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5" />
   </Svg>
 );
 

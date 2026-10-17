@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { type SessionBrief, api } from "../api/client";
 import { useI18n } from "../i18n";
+import { errorText } from "../lib/errors";
 import { useToast } from "./Toast";
 import { IconAlert, IconChevronRight, IconFile, IconTrash, IconUpload } from "./icons";
 import { Button, Card, ProgressBar, Skeleton } from "./ui";
@@ -12,7 +13,7 @@ const SAMPLE = `[
 ]`;
 
 function RecentRow({ s, i, onOpen }: { s: SessionBrief; i: number; onOpen: () => void }) {
-  const { t, locale } = useI18n();
+  const { t, locale, language } = useI18n();
   const qc = useQueryClient();
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
@@ -34,7 +35,7 @@ function RecentRow({ s, i, onOpen }: { s: SessionBrief; i: number; onOpen: () =>
       toast(t("batchDeleted"));
     } catch (e) {
       setRemoving(false);
-      toast(e instanceof Error ? e.message : String(e), "error");
+      toast(errorText(e, t, language), "error");
     }
   }
 
@@ -49,7 +50,7 @@ function RecentRow({ s, i, onOpen }: { s: SessionBrief; i: number; onOpen: () =>
           <button
             type="button"
             onClick={onOpen}
-            className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-600/20"
           >
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 transition-transform duration-200 group-hover:scale-105">
               <IconFile className="h-5 w-5" />
@@ -100,22 +101,32 @@ function RecentRow({ s, i, onOpen }: { s: SessionBrief; i: number; onOpen: () =>
   );
 }
 
+// тот же лимит, что у сервера по умолчанию (JANA_MAX_UPLOAD_MB): большой файл отсекаем до отправки
+const MAX_MB = 100;
+
 export function Upload({ onSession }: { onSession: (id: string) => void }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [drag, setDrag] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const recent = useQuery({ queryKey: ["sessions"], queryFn: api.sessions });
+  const busy = progress !== null;
 
   async function send(file: File) {
+    // вторая загрузка поверх идущей открыла бы два пакета наперегонки
+    if (busy) return;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setError(t("fileTooLarge", { mb: MAX_MB }));
+      return;
+    }
     setError(null);
     setProgress(0);
     try {
       const res = await api.upload(file, setProgress);
       onSession(res.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e, t, language));
     } finally {
       setProgress(null);
     }
@@ -131,7 +142,7 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
         <label
           onDragOver={(e) => {
             e.preventDefault();
-            setDrag(true);
+            if (!busy) setDrag(true);
           }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => {
@@ -140,7 +151,8 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
             const f = e.dataTransfer.files[0];
             if (f) void send(f);
           }}
-          className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition duration-200 ${
+          aria-busy={busy || undefined}
+          className={`group flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition duration-200 ${busy ? "cursor-progress" : "cursor-pointer"} ${
             drag
               ? "scale-[1.01] border-brand-600 bg-brand-50"
               : "border-line hover:border-brand-300 hover:bg-brand-50/50"
@@ -177,6 +189,7 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
           <input
             ref={input}
             type="file"
+            disabled={busy}
             accept=".json,.jsonl,application/json"
             className="hidden"
             onChange={(e) => {
@@ -189,12 +202,18 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
             <div className="w-full max-w-sm animate-fade-in">
               <ProgressBar value={progress} className="h-2" />
               <div className="mt-1 text-xs tabular-nums text-ink-3">
-                {t("uploadProgress", { pct: Math.round(progress * 100) })}
+                {/* файл ушёл целиком, а сервер ещё читает и сохраняет пакет */}
+                {progress >= 1
+                  ? t("uploadProcessing")
+                  : t("uploadProgress", { pct: Math.round(progress * 100) })}
               </div>
             </div>
           )}
           {error && (
-            <div className="inline-flex animate-fade-up items-center gap-2 rounded-xl bg-danger-50 px-3 py-2 text-sm text-danger">
+            <div
+              role="alert"
+              className="inline-flex animate-fade-up items-center gap-2 rounded-xl bg-danger-50 px-3 py-2 text-sm text-danger"
+            >
               <IconAlert className="h-4 w-4 shrink-0" />
               {error}
             </div>
@@ -216,6 +235,17 @@ export function Upload({ onSession }: { onSession: (id: string) => void }) {
           <div className="space-y-2">
             <Skeleton className="h-12 w-full rounded-2xl" />
             <Skeleton className="h-12 w-full rounded-2xl" />
+          </div>
+        </Card>
+      )}
+      {recent.isError && (
+        <Card>
+          <div className="flex items-center gap-2 text-sm text-danger">
+            <IconAlert className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">{errorText(recent.error, t, language)}</span>
+            <Button size="sm" variant="ghost" onClick={() => void recent.refetch()}>
+              {t("retry")}
+            </Button>
           </div>
         </Card>
       )}

@@ -1,5 +1,15 @@
-import type { ExplainRecord, FieldName, StepTrace } from "../../api/client";
-import { type Token, asField, parseTokens, quoted } from "../../lib/trace";
+import { type ExplainRecord, FIELD_NAMES, type FieldName, type StepTrace } from "../../api/client";
+import { type ConfModel, confModel } from "../../lib/confidence";
+import { codepoints } from "../../lib/fields";
+import {
+  type Token,
+  asField,
+  isRecord,
+  numericParts,
+  parseLayout,
+  parseTokens,
+  quoted,
+} from "../../lib/trace";
 
 // из ответа /parse?explain=true достаём то, что показывает анимация; ничего не придумываем сверх trace
 
@@ -35,6 +45,8 @@ export interface RefEvent {
 }
 
 export interface Derived {
+  /** модель уверенности (баллы признаков); null у ответов без слагаемых */
+  conf: ConfModel | null;
   raw: string;
   removed: Set<number>;
   layout: { from: string; to: string } | null;
@@ -50,7 +62,19 @@ export interface Derived {
   parts: [string, number][];
   confidence: number;
   timings: { step: string; ms: number }[];
+  /** id для показа: строку из демо разбирают без id, а жюри присылает его в каждой записи */
+  id: string;
+  /** ответ в форме sample_output.json по порядку ключей, с источником каждого поля */
+  output: OutLine[];
 }
+
+export interface OutLine {
+  key: string;
+  value: string | number | null;
+  source: "string" | "reference" | "manual" | null;
+}
+
+export const DEMO_ID = "demo_001";
 
 const RULE_STEPS = ["admin", "details", "street", "landmark", "numbers", "building", "leftover"];
 
@@ -62,10 +86,13 @@ function step(trace: StepTrace[], name: string): StepTrace | undefined {
 function removedChars(raw: string, cleaned: string | null): Set<number> {
   const out = new Set<number>();
   if (cleaned == null) return out;
+  // в кодпоинтах, как спаны сервера (lib/fields.codepoints)
+  const rs = codepoints(raw);
+  const cs = codepoints(cleaned);
   let j = 0;
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i];
-    if (j < cleaned.length && (c === cleaned[j] || (/\s/.test(c ?? "") && cleaned[j] === " "))) j++;
+  for (let i = 0; i < rs.length; i++) {
+    const c = rs[i];
+    if (j < cs.length && (c === cs[j] || (/\s/.test(c ?? "") && cs[j] === " "))) j++;
     else out.add(i);
   }
   return out;
@@ -75,9 +102,7 @@ export function derive(r: ExplainRecord): Derived {
   const raw = String(r.raw_address ?? "");
   const trace = r.trace ?? [];
 
-  const layoutNote = (step(trace, "layout")?.notes ?? []).find((n) => n.includes("->"));
-  const lq = layoutNote ? quoted(layoutNote) : [];
-  const layout = lq.length >= 2 ? { from: lq[0] ?? "", to: lq[1] ?? "" } : null;
+  const layout = parseLayout(step(trace, "layout")?.notes ?? []);
 
   const cleanNote = (step(trace, "clean")?.notes ?? []).find((n) => n.startsWith("clean:"));
   const cleaned = cleanNote ? (quoted(cleanNote)[0] ?? null) : null;
@@ -109,36 +134,28 @@ export function derive(r: ExplainRecord): Derived {
     }
   }
 
-  const model = r.model as
-    | {
-        mode?: string;
-        spans?: { label: string; start: number; end: number; p: number; p_cal?: number }[];
-        fields?: Record<
-          string,
-          {
-            rules?: { value: string; score: number } | null;
-            model?: { value: string; score: number } | null;
-            decision: string;
-          }
-        >;
-      }
-    | null
-    | undefined;
-  const spans: ModelSpan[] = (model?.spans ?? []).map((s) => ({
-    label: s.label,
-    field: asField(s.label),
-    start: s.start,
-    end: s.end,
-    p: s.p_cal ?? s.p,
-  }));
-  const arbiter: ArbiterRow[] = Object.entries(model?.fields ?? {})
-    .filter(([k]) => asField(k))
-    .map(([k, v]) => ({
-      field: k as FieldName,
-      rules: v.rules ? { value: String(v.rules.value ?? ""), score: v.rules.score } : null,
-      model: v.model ? { value: String(v.model.value ?? ""), score: v.model.score } : null,
-      decision: v.decision,
-    }));
+  // r.model это свободный JSON с сервера: форму проверяем, битая запись не должна ронять страницу
+  const model = isRecord(r.model) ? r.model : null;
+  const spans: ModelSpan[] = (Array.isArray(model?.spans) ? model.spans : []).flatMap((s: unknown) => {
+    if (
+      !isRecord(s) ||
+      typeof s.label !== "string" ||
+      typeof s.start !== "number" ||
+      typeof s.end !== "number"
+    )
+      return [];
+    const p = typeof s.p_cal === "number" ? s.p_cal : typeof s.p === "number" ? s.p : 0;
+    return [{ label: s.label, field: asField(s.label), start: s.start, end: s.end, p }];
+  });
+  const cand = (x: unknown) =>
+    isRecord(x) && typeof x.score === "number" ? { value: String(x.value ?? ""), score: x.score } : null;
+  const arbiter: ArbiterRow[] = Object.entries(isRecord(model?.fields) ? model.fields : {}).flatMap(
+    ([k, v]) => {
+      const field = asField(k);
+      if (!field || !isRecord(v)) return [];
+      return [{ field, rules: cand(v.rules), model: cand(v.model), decision: String(v.decision ?? "") }];
+    },
+  );
 
   const reference: RefEvent[] = Object.entries(step(trace, "reference")?.changes ?? {}).flatMap(([k, v]) => {
     const f = asField(k);
@@ -147,8 +164,7 @@ export function derive(r: ExplainRecord): Derived {
     return [{ field: f, value: String(o.value ?? ""), source: (o.source ?? "").replace(/^reference:/, "") }];
   });
 
-  const conf = step(trace, "confidence")?.changes as { parts?: Record<string, number> } | undefined;
-  const parts = Object.entries(conf?.parts ?? {});
+  const parts = numericParts(step(trace, "confidence")?.changes?.parts);
 
   return {
     raw,
@@ -164,8 +180,31 @@ export function derive(r: ExplainRecord): Derived {
     arbiter,
     reference,
     parts,
+    conf: confModel(trace, r.confidence),
     confidence: r.confidence,
     timings: trace.map((s) => ({ step: s.step, ms: s.ms })),
+    id: r.id == null ? DEMO_ID : String(r.id),
+    output: [
+      { key: "id", value: r.id == null ? DEMO_ID : String(r.id), source: null },
+      { key: "raw_address", value: raw, source: null },
+      ...FIELD_NAMES.map((f): OutLine => {
+        const src = r.fields?.[f]?.source ?? null;
+        const value = r[f] ?? null;
+        return {
+          key: f,
+          value,
+          source:
+            value == null || !src
+              ? null
+              : src === "string"
+                ? "string"
+                : src === "manual"
+                  ? "manual"
+                  : "reference",
+        };
+      }),
+      { key: "confidence", value: r.confidence, source: null },
+    ],
   };
 }
 
@@ -179,6 +218,9 @@ export function ticksOf(d: Derived): Record<string, number> {
     tagger: d.modelOn ? 6 + d.spans.length : 1,
     arbiter: Math.max(1, d.arbiter.length + 1),
     reference: Math.max(1, d.reference.length + 1),
-    confidence: d.parts.length + 2,
+    confidence: (d.conf ? d.conf.terms.length + 1 : d.parts.length) + 2,
+    // вход: скобка, id, raw_address, пауза; выход: по две строки ответа за тик
+    input: 4,
+    output: Math.ceil(d.output.length / 2) + 2,
   };
 }

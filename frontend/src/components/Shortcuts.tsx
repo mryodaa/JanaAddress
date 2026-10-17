@@ -28,6 +28,14 @@ const ROWS: { keys: ReactNode; label: TranslationKey }[] = [
     ),
     label: "kbSave",
   },
+  {
+    keys: (
+      <>
+        <Kbd>Ctrl</Kbd>+<Kbd>Shift</Kbd>+<Kbd>Enter</Kbd>
+      </>
+    ),
+    label: "kbDefer",
+  },
   { keys: <Kbd>Esc</Kbd>, label: "kbClose" },
   { keys: <Kbd>U</Kbd>, label: "kbUncertain" },
   { keys: <Kbd>/</Kbd>, label: "kbSearch" },

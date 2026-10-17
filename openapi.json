@@ -29,7 +29,7 @@
     ],
     "responses": {
      "200": {
-      "description": "Successful Response",
+      "description": "Ответ в той же форме контейнера, что вход; для JSONL application/x-ndjson",
       "content": {
        "application/json": {
         "schema": {
@@ -39,23 +39,24 @@
          },
          "title": "Response Parse Batch Api V1 Parse Batch Post"
         }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
+       },
+       "application/x-ndjson": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "type": "string"
         }
        }
       }
+     },
+     "413": {
+      "description": "тело больше лимита JANA_MAX_UPLOAD_MB"
+     },
+     "422": {
+      "description": "не JSON/JSONL или нет записей"
      }
     },
     "requestBody": {
      "required": true,
-     "description": "Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file)",
+     "description": "Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file). Принимается и объект со списком записей ({\"records\": [...]}), одиночная запись, JSONL: ответ возвращается в той же форме контейнера",
      "content": {
       "application/json": {
        "schema": {
@@ -157,9 +158,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Get Config Api V1 Config Get"
+         "$ref": "#/components/schemas/ConfigOut"
         }
        }
       }
@@ -197,13 +196,43 @@
        }
       }
      },
+     "413": {
+      "description": "файл больше лимита"
+     },
      "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+      "description": "неверный формат или нет записей"
+     }
+    },
+    "requestBody": {
+     "required": true,
+     "description": "Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file). Принимается и объект со списком записей ({\"records\": [...]}), одиночная запись, JSONL: ответ возвращается в той же форме контейнера",
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/InputRecord"
         }
+       },
+       "example": [
+        {
+         "id": "rec_00417",
+         "raw_address": "город Алматы/Алматы қаласы, Мкр Аксай 3а, 59, кв 70"
+        }
+       ]
+      },
+      "multipart/form-data": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "file": {
+          "type": "string",
+          "format": "binary"
+         }
+        },
+        "required": [
+         "file"
+        ]
        }
       }
      }
@@ -262,6 +291,9 @@
        }
       }
      },
+     "404": {
+      "description": "сессия не найдена"
+     },
      "422": {
       "description": "Validation Error",
       "content": {
@@ -306,6 +338,9 @@
        }
       }
      },
+     "404": {
+      "description": "сессия не найдена"
+     },
      "422": {
       "description": "Validation Error",
       "content": {
@@ -324,8 +359,478 @@
     "tags": [
      "sessions"
     ],
-    "summary": "Записи с фильтрами",
+    "summary": "Записи с фильтрами, страницами, в заданном порядке",
     "operationId": "list_records_api_v1_sessions__sid__records_get",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "uncertain",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Uncertain"
+      }
+     },
+     {
+      "name": "reviewed",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Reviewed"
+      }
+     },
+     {
+      "name": "edited",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Edited"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "description": "подстрока исходной строки или значения поля, без учёта регистра",
+       "default": "",
+       "title": "Q"
+      },
+      "description": "подстрока исходной строки или значения поля, без учёта регистра"
+     },
+     {
+      "name": "sort",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "idx",
+        "confidence",
+        "raw",
+        "added"
+       ],
+       "type": "string",
+       "default": "idx",
+       "title": "Sort"
+      }
+     },
+     {
+      "name": "dir",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "asc",
+        "desc"
+       ],
+       "type": "string",
+       "default": "asc",
+       "title": "Dir"
+      }
+     },
+     {
+      "name": "bucket",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 9,
+         "minimum": 0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0",
+       "title": "Bucket"
+      },
+      "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0"
+     },
+     {
+      "name": "skipped",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Skipped"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 1000,
+       "minimum": 1,
+       "default": 500,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecordList"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "сессия не найдена"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/sessions/{sid}/records/position": {
+   "get": {
+    "tags": [
+     "sessions"
+    ],
+    "summary": "Место записи в списке с этими фильтрами и порядком",
+    "operationId": "record_position_api_v1_sessions__sid__records_position_get",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "idx",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Idx"
+      }
+     },
+     {
+      "name": "uncertain",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Uncertain"
+      }
+     },
+     {
+      "name": "reviewed",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Reviewed"
+      }
+     },
+     {
+      "name": "edited",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Edited"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "sort",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "idx",
+        "confidence",
+        "raw",
+        "added"
+       ],
+       "type": "string",
+       "default": "idx",
+       "title": "Sort"
+      }
+     },
+     {
+      "name": "dir",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "asc",
+        "desc"
+       ],
+       "type": "string",
+       "default": "asc",
+       "title": "Dir"
+      }
+     },
+     {
+      "name": "bucket",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 9,
+         "minimum": 0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0",
+       "title": "Bucket"
+      },
+      "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0"
+     },
+     {
+      "name": "skipped",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Skipped"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecordPosition"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "сессия не найдена"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/sessions/{sid}/records/{idx}": {
+   "get": {
+    "tags": [
+     "sessions"
+    ],
+    "summary": "Запись целиком, с trace по шагам",
+    "operationId": "get_record_api_v1_sessions__sid__records__idx__get",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "idx",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Idx"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecordItem"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "запись не найдена"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "sessions"
+    ],
+    "summary": "Ручная правка полей, отметка «проверено»",
+    "operationId": "patch_record_api_v1_sessions__sid__records__idx__patch",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "idx",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Idx"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecordPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecordItem"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "запись не найдена"
+     },
+     "422": {
+      "description": "неизвестное поле"
+     }
+    }
+   }
+  },
+  "/api/v1/sessions/{sid}/export": {
+   "get": {
+    "tags": [
+     "sessions"
+    ],
+    "summary": "Результат с правками: весь пакет (sample_output.json) или отфильтрованный список, JSON или CSV",
+    "description": "Без параметров: весь пакет в форме входа, все поля, как ответ батча. Фильтры те же, что у списка записей (uncertain, reviewed, edited, q, bucket) и порядок (sort, dir). fields: поля через запятую (id и raw_address всегда), sources: источник каждого непустого поля.",
+    "operationId": "export_api_v1_sessions__sid__export_get",
     "parameters": [
      {
       "name": "sid",
@@ -389,179 +894,114 @@
       }
      },
      {
-      "name": "offset",
+      "name": "bucket",
       "in": "query",
       "required": false,
       "schema": {
-       "type": "integer",
-       "minimum": 0,
-       "default": 0,
-       "title": "Offset"
-      }
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 9,
+         "minimum": 0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0",
+       "title": "Bucket"
+      },
+      "description": "столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0"
      },
      {
-      "name": "limit",
+      "name": "skipped",
       "in": "query",
       "required": false,
       "schema": {
-       "type": "integer",
-       "maximum": 100000,
-       "minimum": 1,
-       "default": 20000,
-       "title": "Limit"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/RecordList"
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
         }
-       }
+       ],
+       "title": "Skipped"
       }
      },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/v1/sessions/{sid}/records/{idx}": {
-   "get": {
-    "tags": [
-     "sessions"
-    ],
-    "summary": "Запись целиком, с trace по шагам",
-    "operationId": "get_record_api_v1_sessions__sid__records__idx__get",
-    "parameters": [
      {
-      "name": "sid",
-      "in": "path",
-      "required": true,
+      "name": "sort",
+      "in": "query",
+      "required": false,
       "schema": {
+       "enum": [
+        "idx",
+        "confidence",
+        "raw",
+        "added"
+       ],
        "type": "string",
-       "title": "Sid"
+       "default": "idx",
+       "title": "Sort"
       }
      },
      {
-      "name": "idx",
-      "in": "path",
-      "required": true,
+      "name": "dir",
+      "in": "query",
+      "required": false,
       "schema": {
-       "type": "integer",
-       "title": "Idx"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/RecordItem"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   },
-   "patch": {
-    "tags": [
-     "sessions"
-    ],
-    "summary": "Ручная правка полей, отметка «проверено»",
-    "operationId": "patch_record_api_v1_sessions__sid__records__idx__patch",
-    "parameters": [
-     {
-      "name": "sid",
-      "in": "path",
-      "required": true,
-      "schema": {
+       "enum": [
+        "asc",
+        "desc"
+       ],
        "type": "string",
-       "title": "Sid"
+       "default": "asc",
+       "title": "Dir"
       }
      },
      {
-      "name": "idx",
-      "in": "path",
-      "required": true,
+      "name": "fields",
+      "in": "query",
+      "required": false,
       "schema": {
-       "type": "integer",
-       "title": "Idx"
-      }
-     }
-    ],
-    "requestBody": {
-     "required": true,
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/RecordPatch"
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/RecordItem"
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
         }
-       }
-      }
+       ],
+       "description": "province,city,... (id и raw_address всегда); пусто = все",
+       "title": "Fields"
+      },
+      "description": "province,city,... (id и raw_address всегда); пусто = все"
      },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/v1/sessions/{sid}/export": {
-   "get": {
-    "tags": [
-     "sessions"
-    ],
-    "summary": "Результат с правками в формате sample_output.json",
-    "operationId": "export_api_v1_sessions__sid__export_get",
-    "parameters": [
      {
-      "name": "sid",
-      "in": "path",
-      "required": true,
+      "name": "format",
+      "in": "query",
+      "required": false,
       "schema": {
+       "enum": [
+        "json",
+        "csv"
+       ],
        "type": "string",
-       "title": "Sid"
+       "default": "json",
+       "title": "Format"
       }
+     },
+     {
+      "name": "sources",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "добавить источник поля: _sources в JSON, колонки *_source в CSV",
+       "default": false,
+       "title": "Sources"
+      },
+      "description": "добавить источник поля: _sources в JSON, колонки *_source в CSV"
      }
     ],
     "responses": {
@@ -569,19 +1009,28 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/OutputRecord"
+         }
+        }
+       },
+       "text/csv": {
+        "schema": {
+         "type": "string"
         }
        }
       }
+     },
+     "404": {
+      "description": "сессия не найдена"
+     },
+     "409": {
+      "description": "пакет ещё разбирается"
+     },
+     "422": {
+      "description": "неизвестное поле в fields"
      }
     }
    }
@@ -598,7 +1047,19 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/HealthOut"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "ещё загружается",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HealthOut"
+        }
        }
       }
      }
@@ -608,6 +1069,19 @@
  },
  "components": {
   "schemas": {
+   "ConfigOut": {
+    "properties": {
+     "uncertain_threshold": {
+      "type": "number",
+      "title": "Uncertain Threshold"
+     }
+    },
+    "type": "object",
+    "required": [
+     "uncertain_threshold"
+    ],
+    "title": "ConfigOut"
+   },
    "ExplainRecord": {
     "properties": {
      "id": {
@@ -856,6 +1330,56 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "HealthOut": {
+    "properties": {
+     "status": {
+      "type": "string",
+      "title": "Status",
+      "description": "ok | loading (503, пока грузятся справочник и модель)"
+     },
+     "version": {
+      "type": "string",
+      "title": "Version"
+     },
+     "load_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Load Seconds"
+     },
+     "reference": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ReferenceInfo"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "tagger": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TaggerInfo"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "status",
+     "version"
+    ],
+    "title": "HealthOut"
+   },
    "OutputRecord": {
     "properties": {
      "id": {
@@ -1045,6 +1569,11 @@
       "type": "boolean",
       "title": "Reviewed"
      },
+     "skipped": {
+      "type": "boolean",
+      "title": "Skipped",
+      "default": false
+     },
      "unparsed": {
       "items": {
        "type": "string"
@@ -1099,7 +1628,13 @@
     "properties": {
      "total": {
       "type": "integer",
-      "title": "Total"
+      "title": "Total",
+      "description": "записей с этими фильтрами всего (страница может быть короче)"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset",
+      "default": 0
      },
      "items": {
       "items": {
@@ -1143,10 +1678,97 @@
        }
       ],
       "title": "Reviewed"
+     },
+     "skipped": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skipped",
+      "description": "true: отложить (вне очереди неуверенных), false: вернуть"
      }
     },
     "type": "object",
     "title": "RecordPatch"
+   },
+   "RecordPosition": {
+    "properties": {
+     "position": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Position",
+      "description": "место записи в списке с этими фильтрами и порядком; null: её там нет"
+     }
+    },
+    "type": "object",
+    "required": [
+     "position"
+    ],
+    "title": "RecordPosition"
+   },
+   "ReferenceInfo": {
+    "properties": {
+     "file": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "File"
+     },
+     "counts": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Counts",
+      "description": "записей справочника по типам"
+     },
+     "houses": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Houses"
+     },
+     "built_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Built At"
+     },
+     "sources": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sources"
+     }
+    },
+    "type": "object",
+    "title": "ReferenceInfo"
    },
    "SessionBrief": {
     "properties": {
@@ -1341,7 +1963,25 @@
      "to_review": {
       "type": "integer",
       "title": "To Review",
-      "description": "неуверенных, ещё не проверенных и не исправленных (как фильтр uncertain)"
+      "description": "очередь проверки: неуверенные, не проверенные, не исправленные, не отложенные"
+     },
+     "skipped": {
+      "type": "integer",
+      "title": "Skipped",
+      "description": "отложенных оператором",
+      "default": 0
+     },
+     "review_total": {
+      "type": "integer",
+      "title": "Review Total",
+      "description": "записей, неуверенных по оценке разбора (вся очередь проверки)",
+      "default": 0
+     },
+     "review_done": {
+      "type": "integer",
+      "title": "Review Done",
+      "description": "из них уже подтверждено или исправлено",
+      "default": 0
      },
      "mean_confidence": {
       "anyOf": [
@@ -1402,6 +2042,63 @@
      "sources"
     ],
     "title": "Summary"
+   },
+   "TaggerInfo": {
+    "properties": {
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "off | shadow | on | only"
+     },
+     "loaded": {
+      "type": "boolean",
+      "title": "Loaded"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "max_len": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Len"
+     },
+     "warmup_ms": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Warmup Ms"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Metrics"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mode",
+     "loaded"
+    ],
+    "title": "TaggerInfo"
    },
    "ValidationError": {
     "properties": {

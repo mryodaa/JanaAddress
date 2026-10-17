@@ -3,11 +3,11 @@ import type { Language } from "../i18n/types";
 import { Segmented } from "./ui";
 
 export function LangSwitcher() {
-  const { language, setLanguage, availableLanguages } = useI18n();
+  const { t, language, setLanguage, availableLanguages } = useI18n();
 
   return (
     <Segmented<Language>
-      ariaLabel="Language selection"
+      ariaLabel={t("langAria")}
       size="sm"
       value={language}
       onChange={setLanguage}

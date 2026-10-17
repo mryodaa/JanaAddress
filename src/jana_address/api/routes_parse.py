@@ -15,7 +15,11 @@ router = APIRouter(prefix="/api/v1", tags=["parse"])
 _BATCH_BODY_DOC: dict[str, Any] = {
     "requestBody": {
         "required": True,
-        "description": "Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file)",
+        "description": (
+            "Тело в формате sample_input.json (application/json) или файл (multipart/form-data, поле file). "
+            'Принимается и объект со списком записей ({"records": [...]}), одиночная запись, JSONL: '
+            "ответ возвращается в той же форме контейнера"
+        ),
         "content": {
             "application/json": {
                 "schema": {"type": "array", "items": {"$ref": "#/components/schemas/InputRecord"}},
@@ -33,9 +37,18 @@ _BATCH_BODY_DOC: dict[str, Any] = {
 }
 
 
+# загрузка пакета в UI: то же тело, что у батча
+UPLOAD_BODY_DOC = _BATCH_BODY_DOC
+
+_ERRORS: dict[int | str, dict[str, Any]] = {
+    413: {"description": "тело больше лимита JANA_MAX_UPLOAD_MB"},
+    422: {"description": "не JSON/JSONL или нет записей"},
+}
+
+
 async def read_payload(request: Request) -> bytes:
     """JSON-тело или первый файл из multipart, как есть, без перекодирования."""
-    ctype = request.headers.get("content-type", "")
+    ctype = request.headers.get("content-type", "").lower()
     if ctype.startswith("multipart/form-data"):
         form = await request.form()
         upload = form.get("file") or next((v for v in form.values() if hasattr(v, "read")), None)
@@ -54,6 +67,9 @@ def parse_payload(data: bytes) -> tuple[list[dict[str, Any]], io_format.Containe
         return io_format.loads(data)
     except (io_format.InputFormatError, UnicodeDecodeError) as exc:
         raise HTTPException(422, f"неверный формат входа: {exc}") from exc
+    except RecursionError:
+        # json.loads падает на сверхглубокой вложенности: это ошибка входа, а не сервера
+        raise HTTPException(422, "неверный формат входа: слишком глубокая вложенность JSON") from None
 
 
 @router.post(
@@ -61,13 +77,21 @@ def parse_payload(data: bytes) -> tuple[list[dict[str, Any]], io_format.Containe
     summary="Разбор пакета в формате sample_input.json -> sample_output.json",
     response_model=list[OutputRecord],
     openapi_extra=_BATCH_BODY_DOC,
+    responses={
+        200: {
+            "description": "Ответ в той же форме контейнера, что вход; для JSONL application/x-ndjson",
+            "content": {"application/x-ndjson": {"schema": {"type": "string"}}},
+        },
+        **_ERRORS,
+    },
 )
 async def parse_batch(
     request: Request, explain: bool = Query(False, description="добавить источники полей и trace")
 ) -> Response:
     records, container = parse_payload(await read_payload(request))
     results = await asyncio.to_thread(engine.parse_many, records, explain)
-    return Response(io_format.dumps(results, container), media_type="application/json; charset=utf-8")
+    media = "application/x-ndjson" if container.kind == "jsonl" else "application/json"
+    return Response(io_format.dumps(results, container), media_type=f"{media}; charset=utf-8")
 
 
 @router.post("/parse", summary="Разбор одной строки", response_model=ExplainRecord)

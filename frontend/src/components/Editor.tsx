@@ -3,9 +3,29 @@ import { useEffect, useRef, useState } from "react";
 import { FIELD_NAMES, type FieldName, type RecordItem, api } from "../api/client";
 import { useI18n } from "../i18n";
 import type { TranslationKey } from "../i18n/types";
+import { useWindowKey } from "../lib/keys";
 import { Trace, TraceSkeleton, totalMs } from "./Trace";
-import { IconAlert, IconCheck, IconChevronDown, IconChevronUp, IconEraser, IconUndo, IconX } from "./icons";
-import { Button, ConfidenceBadge, Disclosure, FieldDot, Highlighted, IconButton, Kbd, SourceTag } from "./ui";
+import {
+  IconAlert,
+  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
+  IconClock,
+  IconEraser,
+  IconUndo,
+  IconX,
+} from "./icons";
+import {
+  Button,
+  ConfidenceBadge,
+  Disclosure,
+  FieldDot,
+  Highlighted,
+  IconButton,
+  Kbd,
+  SourceTag,
+  Unparsed,
+} from "./ui";
 
 type Draft = Record<FieldName, string>;
 
@@ -27,6 +47,8 @@ export function Editor({
   threshold,
   position,
   onSave,
+  onDefer,
+  onStatus,
   onPrev,
   onNext,
   onClose,
@@ -41,7 +63,12 @@ export function Editor({
   item: RecordItem;
   threshold: number;
   position: string;
-  onSave: (fields: Partial<Record<FieldName, string | null>>) => void;
+  /** idx записи передаётся явно: сохранение во время анимации закрытия не должно уйти в чужую запись */
+  onSave: (idx: number, fields: Partial<Record<FieldName, string | null>>) => void;
+  /** отложить запись (с несохранёнными правками, если есть) и перейти дальше */
+  onDefer: (idx: number, fields: Partial<Record<FieldName, string | null>>) => void;
+  /** снять подтверждение (reviewed=false) или вернуть отложенную в очередь (skipped=false) */
+  onStatus: (idx: number, change: { reviewed?: boolean; skipped?: boolean }) => void;
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
@@ -56,9 +83,19 @@ export function Editor({
 }) {
   const { t, fieldLabels } = useI18n();
   const [draft, setDraft] = useState<Draft>(() => toDraft(item));
+  const [draftFor, setDraftFor] = useState(item.idx);
   const [showTrace, setShowTrace] = useState(false);
   const [hover, setHover] = useState<FieldName | null>(null);
   const [ping, setPing] = useState<{ f: FieldName; n: number } | null>(null);
+  // черновик сбрасывается только при переходе на другую запись: обновление списка в фоне (refetch)
+  // не должно стирать набранное; состояние подсветки и шагов тоже от прошлой записи не тянется
+  if (draftFor !== item.idx) {
+    setDraftFor(item.idx);
+    setDraft(toDraft(item));
+    setShowTrace(false);
+    setHover(null);
+    setPing(null);
+  }
   const inputs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>({});
   const full = useQuery({
     queryKey: ["record", sid, item.idx],
@@ -66,16 +103,20 @@ export function Editor({
     enabled: showTrace,
   });
 
-  useEffect(() => {
-    setDraft(toDraft(item));
-  }, [item]);
-
   const changed = FIELD_NAMES.filter((f) => (item.record[f] ?? "") !== draft[f]);
   const dirty = changed.length > 0;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  // редактор закрыт: черновика больше нет, иначе SessionView продолжал бы спрашивать «сохранить?»
+  useEffect(() => () => onDirty(false), [onDirty]);
 
+  const draftFields = () => Object.fromEntries(changed.map((f) => [f, draft[f].trim() || null]));
   function save() {
-    onSave(Object.fromEntries(changed.map((f) => [f, draft[f].trim() || null])));
+    if (saving) return;
+    onSave(item.idx, draftFields());
+  }
+  function defer() {
+    if (saving) return;
+    onDefer(item.idx, draftFields());
   }
 
   function pick(f: FieldName) {
@@ -86,26 +127,26 @@ export function Editor({
   }
 
   // Ctrl+Enter сохранить и дальше, Esc закрыть, Alt+↑/↓ соседние записи; на скрытой вкладке не сохранять молча
-  useEffect(() => {
-    if (!active) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        save();
-      } else if (e.key === "Escape") {
-        if (pending) onResolve("cancel");
-        else onClose();
-      } else if (e.altKey && e.key === "ArrowDown") {
-        e.preventDefault();
-        onNext();
-      } else if (e.altKey && e.key === "ArrowUp") {
-        e.preventDefault();
-        onPrev();
+  // зажатый Ctrl+Enter не сохраняет повторно и не перескакивает через записи
+  useWindowKey((e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      // Ctrl+Shift+Enter отложить, Ctrl+Enter подтвердить
+      if (!e.repeat) {
+        if (e.shiftKey) defer();
+        else save();
       }
+    } else if (e.key === "Escape") {
+      if (pending) onResolve("cancel");
+      else onClose();
+    } else if (e.altKey && e.key === "ArrowDown") {
+      e.preventDefault();
+      onNext();
+    } else if (e.altKey && e.key === "ArrowUp") {
+      e.preventDefault();
+      onPrev();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  }, active);
 
   function fieldInput(f: FieldName) {
     const isChanged = changed.includes(f);
@@ -126,7 +167,7 @@ export function Editor({
           onBlur={() => setHover((h) => (h === f ? null : h))}
           placeholder="null"
           aria-label={fieldLabels[f]}
-          className={`h-9 w-full min-w-0 rounded-xl border pl-2.5 pr-14 text-sm transition duration-200 placeholder:font-mono placeholder:text-xs placeholder:text-ink-3/50 focus:outline-none focus:ring-4 ${
+          className={`h-9 w-full min-w-0 rounded-xl border pl-2.5 pr-14 text-sm transition duration-200 placeholder:font-mono placeholder:text-xs placeholder:text-ink-3 focus:outline-none focus:ring-4 ${
             isChanged
               ? "border-warn bg-warn-50 focus:border-warn focus:ring-warn/20"
               : "border-line bg-white hover:border-brand-200 focus:border-brand-600 focus:ring-brand-600/15"
@@ -136,7 +177,6 @@ export function Editor({
           {isChanged && (
             <button
               type="button"
-              tabIndex={-1}
               onClick={() => setDraft({ ...draft, [f]: orig })}
               title={orig ? t("revertTo", { v: orig }) : t("revert")}
               aria-label={t("revert")}
@@ -148,7 +188,6 @@ export function Editor({
           {draft[f] && (
             <button
               type="button"
-              tabIndex={-1}
               onClick={() => {
                 setDraft({ ...draft, [f]: "" });
                 inputs.current[f]?.focus();
@@ -181,11 +220,28 @@ export function Editor({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold">
             {t("recordTitle", { idx: item.idx + 1 })}
+            {/* статус проверки со снятием: подтверждение и откладывание обратимы */}
             {item.reviewed && (
-              <span className="inline-flex animate-scale-in items-center gap-1 rounded-full bg-brand-50 px-2 py-px text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-                <IconCheck className="h-3 w-3" />
-                {t("reviewedBadge")}
-              </span>
+              <StatusBadge
+                tone="ok"
+                icon={<IconCheck className="h-3 w-3" />}
+                label={t("reviewedBadge")}
+                action={t("unconfirm")}
+                actionAria={t("unconfirmAria")}
+                onAction={() => onStatus(item.idx, { reviewed: false })}
+                disabled={saving}
+              />
+            )}
+            {item.skipped && (
+              <StatusBadge
+                tone="muted"
+                icon={<IconClock className="h-3 w-3" />}
+                label={t("skippedBadge")}
+                action={t("returnToQueue")}
+                actionAria={t("returnAria")}
+                onAction={() => onStatus(item.idx, { skipped: false })}
+                disabled={saving}
+              />
             )}
           </div>
           <div className="text-xs text-ink-3">{position}</div>
@@ -282,16 +338,7 @@ export function Editor({
             ))}
           </div>
 
-          {item.unparsed.length > 0 && (
-            <div className="mt-4 flex flex-wrap items-center gap-1.5 text-xs text-ink-2">
-              <span>{t("unparsed")}</span>
-              {item.unparsed.map((u) => (
-                <span key={u} className="rounded-md bg-danger-50 px-1.5 py-px font-mono text-danger">
-                  {u}
-                </span>
-              ))}
-            </div>
-          )}
+          <Unparsed items={item.unparsed} className="mt-4" />
 
           <div className="mt-4">
             <Disclosure
@@ -300,7 +347,11 @@ export function Editor({
               onToggle={() => setShowTrace((v) => !v)}
               extra={full.data?.trace ? `${totalMs(full.data.trace).toFixed(1)} ${t("msUnit")}` : undefined}
             >
-              {full.data?.trace ? <Trace trace={full.data.trace} /> : showTrace ? <TraceSkeleton /> : null}
+              {full.data?.trace ? (
+                <Trace trace={full.data.trace} threshold={threshold} values={item.record} />
+              ) : showTrace ? (
+                <TraceSkeleton />
+              ) : null}
             </Disclosure>
           </div>
         </div>
@@ -309,8 +360,8 @@ export function Editor({
           <Button variant="primary" type="submit" loading={saving} icon={<IconCheck />}>
             {dirty ? t("saveAndNext") : t("confirmAndNext")}
           </Button>
-          <Button variant="ghost" onClick={onNext}>
-            {t("skip")}
+          <Button onClick={defer} disabled={saving} icon={<IconClock />} title={t("deferHint")}>
+            {t("defer")}
           </Button>
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-ink-3">
             {dirty ? (
@@ -318,13 +369,51 @@ export function Editor({
                 {t("changedCount", { n: changed.length })}
               </span>
             ) : (
-              <>
+              <span className="hidden sm:inline-flex sm:items-center sm:gap-1">
                 <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
-              </>
+              </span>
             )}
           </span>
         </footer>
       </form>
     </aside>
+  );
+}
+
+function StatusBadge({
+  tone,
+  icon,
+  label,
+  action,
+  actionAria,
+  onAction,
+  disabled,
+}: {
+  tone: "ok" | "muted";
+  icon: React.ReactNode;
+  label: string;
+  action: string;
+  actionAria: string;
+  onAction: () => void;
+  disabled?: boolean;
+}) {
+  const cls = tone === "ok" ? "bg-brand-50 text-brand-700 ring-brand-200" : "bg-canvas text-ink-2 ring-line";
+  return (
+    <span
+      className={`inline-flex animate-scale-in items-center gap-1 rounded-full py-px pr-0.5 pl-2 text-[11px] font-semibold ring-1 ring-inset ${cls}`}
+    >
+      {icon}
+      {label}
+      <button
+        type="button"
+        onClick={onAction}
+        disabled={disabled}
+        aria-label={actionAria}
+        title={actionAria}
+        className="ml-0.5 rounded-full px-1.5 font-medium underline-offset-2 transition-colors hover:bg-white hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30 disabled:opacity-50"
+      >
+        {action}
+      </button>
+    </span>
   );
 }

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..reference.normalize import fold
 from ..rules_loader import PhraseIndex, Rules
 from .base import ParseState, Token
+from .clean import INVISIBLE
 
 _EDGE = re.compile(r"^[\s.,;:\-–—_/\\|'\"«»()\[\]{}#№*+=!?]+|[\s.,;:\-–—_/\\|'\"«»()\[\]{}#№*+=!?]+$")
-_INVIS = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad\u200e\u200f\u180e]")
+_DROP_CATS = frozenset({"Cc", "Cf", "Cs", "Co"})
 _WS = re.compile(r"\s+")
 
 
@@ -35,9 +37,15 @@ def segment_of(tokens: list[Token]) -> list[int]:
     return out
 
 
+def strip_invisible(text: str) -> str:
+    """Без невидимых и служебных символов: тот же набор, что выбрасывает clean (bidi, Cf, мусорные Cc), иначе
+    они протекали бы в значение, вырезанное из оригинала. Пробельные Cc (таб, перевод строки) оставляем _WS."""
+    return "".join(c for c in text if c not in INVISIBLE and (unicodedata.category(c) not in _DROP_CATS or c.isspace()))
+
+
 def tidy_value(text: str) -> str:
     """Минимальная правка значения: невидимые символы, края, пробелы. Регистр/опечатки не трогаем."""
-    text = _INVIS.sub("", text).replace("\u00a0", " ")
+    text = strip_invisible(text).replace("\u00a0", " ")
     text = _EDGE.sub("", text)
     return _WS.sub(" ", text).strip()
 

@@ -12,19 +12,30 @@ import { createPortal } from "react-dom";
 import type { FieldExplain, FieldName } from "../api/client";
 import { useI18n } from "../i18n";
 import { FIELD_COLORS, highlight, visible } from "../lib/fields";
+import { modalOpened } from "../lib/keys";
 import { usePresence } from "../lib/motion";
 import { IconSearch, IconX, Spinner } from "./icons";
 
+export type ConfidenceTone = "high" | "ok" | "low" | "bad";
+
+/** Ступень уверенности относительно порога: одна шкала для значка, отчёта демо и подсказок. */
+export function confidenceTone(value: number, threshold: number): ConfidenceTone {
+  if (value >= Math.max(threshold, 0.8)) return "high";
+  if (value >= threshold) return "ok";
+  if (value >= threshold / 2) return "low";
+  return "bad";
+}
+
+const BADGE_TONE: Record<ConfidenceTone, string> = {
+  high: "bg-brand-50 text-brand-800 ring-brand-200",
+  ok: "bg-lime-50 text-lime-800 ring-lime-200",
+  low: "bg-warn-50 text-warn-800 ring-warn/40",
+  bad: "bg-danger-50 text-danger ring-danger/25",
+};
+
 export function ConfidenceBadge({ value, threshold }: { value: number; threshold: number }) {
   const pct = Math.round(value * 100);
-  const tone =
-    value >= Math.max(threshold, 0.8)
-      ? "bg-brand-50 text-brand-800 ring-brand-200"
-      : value >= threshold
-        ? "bg-lime-50 text-lime-800 ring-lime-200"
-        : value >= threshold / 2
-          ? "bg-warn-50 text-warn-800 ring-warn/40"
-          : "bg-danger-50 text-danger ring-danger/25";
+  const tone = BADGE_TONE[confidenceTone(value, threshold)];
   return (
     <span
       className={`inline-flex min-w-12 justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ring-inset transition-colors ${tone}`}
@@ -115,20 +126,35 @@ export function SourceTag({ source }: { source: string | null | undefined }) {
   );
 }
 
+/** Куски строки, которые не стали ни полем, ни служебным словом. */
+export function Unparsed({
+  items,
+  className = "",
+  withLabel = true,
+}: { items: string[] | null | undefined; className?: string; withLabel?: boolean }) {
+  const { t } = useI18n();
+  if (!items?.length) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 text-xs text-ink-2 ${className}`}>
+      {withLabel && <span>{t("unparsed")}</span>}
+      {/* номер в ключе: один и тот же кусок может встретиться в строке дважды */}
+      {items.map((u, i) => (
+        <span key={`${i}:${u}`} className="rounded-md bg-danger-50 px-1.5 py-px font-mono text-danger">
+          {u}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function Card({
   title,
-  actions,
   children,
   className = "",
-}: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
+}: { title?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={`rounded-[20px] border border-line bg-white p-4 sm:p-5 ${className}`}>
-      {(title || actions) && (
-        <div className="mb-3 flex items-center justify-between gap-3">
-          {title && <h2 className="text-sm font-semibold text-ink">{title}</h2>}
-          {actions}
-        </div>
-      )}
+      {title && <h2 className="mb-3 text-sm font-semibold text-ink">{title}</h2>}
       {children}
     </section>
   );
@@ -145,8 +171,9 @@ export function Kbd({ children }: { children: ReactNode }) {
 type Variant = "primary" | "secondary" | "neutral" | "ghost" | "danger";
 
 const VARIANT: Record<Variant, string> = {
+  // brand-700: белый текст 5.9:1 (на brand-600 было 4.4:1, ниже AA)
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 hover:-translate-y-px hover:shadow-md hover:shadow-brand-600/25",
+    "bg-brand-700 text-white hover:bg-brand-800 hover:-translate-y-px hover:shadow-md hover:shadow-brand-700/25",
   secondary: "border border-brand-600 bg-white text-brand-700 hover:bg-brand-50",
   neutral: "border border-line bg-white text-ink hover:border-brand-200 hover:bg-brand-50",
   ghost: "text-ink-2 hover:bg-canvas hover:text-ink",
@@ -271,11 +298,23 @@ export function Segmented<T extends string>({
   }, [pill, animate]);
 
   const pad = size === "sm" ? "h-7 px-3 text-xs" : "h-8 px-4 text-sm";
+  // стрелки переключают вариант, как в обычном tablist; фокус уходит на выбранную кнопку
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const i = options.findIndex((o) => o.value === value);
+    const next = options[(i + step + options.length) % options.length];
+    if (!next) return;
+    onChange(next.value);
+    box.current?.querySelector<HTMLElement>(`[data-seg="${CSS.escape(next.value)}"]`)?.focus();
+  };
   return (
     <div
       ref={box}
       role="tablist"
       aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
       className={`relative isolate inline-flex max-w-full items-center overflow-x-auto rounded-full border border-line bg-white p-0.5 [scrollbar-width:none] ${className}`}
     >
       {pill && (
@@ -293,6 +332,7 @@ export function Segmented<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            tabIndex={active ? 0 : -1}
             data-seg={o.value}
             onClick={() => onChange(o.value)}
             className={`relative z-10 inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-600/20 ${pad} ${
@@ -330,7 +370,6 @@ export function TextInput({
   trailing,
   size = "md",
   className = "",
-  onKeyDown,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -341,7 +380,6 @@ export function TextInput({
   trailing?: ReactNode;
   size?: "md" | "lg";
   className?: string;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const { t } = useI18n();
   const h = size === "lg" ? "h-12 text-base" : "h-10 text-sm";
@@ -360,7 +398,6 @@ export function TextInput({
             e.stopPropagation();
             onChange("");
           }
-          onKeyDown?.(e);
         }}
         placeholder={placeholder}
         className={`w-full min-w-0 rounded-xl border border-line bg-white ${icon ? "pl-9" : "pl-3"} pr-16 text-ink transition placeholder:text-ink-3 hover:border-brand-200 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15 ${h}`}
@@ -384,15 +421,11 @@ export function TextInput({
   );
 }
 
-export function ProgressBar({
-  value,
-  tone = "brand",
-  className = "h-1.5",
-}: { value: number; tone?: "brand" | "warn"; className?: string }) {
+export function ProgressBar({ value, className = "h-1.5" }: { value: number; className?: string }) {
   return (
     <div className={`overflow-hidden rounded-full bg-line-soft ${className}`}>
       <div
-        className={`h-full rounded-full transition-[width] duration-500 ease-[var(--ease-out-soft)] ${tone === "brand" ? "bg-brand-600" : "bg-warn"}`}
+        className="h-full rounded-full bg-brand-600 transition-[width] duration-500 ease-[var(--ease-out-soft)]"
         style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }}
       />
     </div>
@@ -415,6 +448,48 @@ export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
   return <div className={`skeleton ${className}`} />;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Фокус внутри панели, пока она открыта: Tab и Shift+Tab ходят по кругу, при закрытии фокус возвращается
+ * туда, откуда панель открыли.
+ */
+export function useFocusTrap(ref: RefObject<HTMLElement>, enabled: boolean): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const on = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (n) => n.getClientRects().length > 0,
+      );
+      const head = items[0];
+      const tail = items[items.length - 1];
+      if (!head || !tail) {
+        e.preventDefault();
+        el.focus();
+        return;
+      }
+      const at = document.activeElement;
+      if (e.shiftKey && (at === head || at === el || !el.contains(at))) {
+        e.preventDefault();
+        tail.focus();
+      } else if (!e.shiftKey && (at === tail || !el.contains(at))) {
+        e.preventDefault();
+        head.focus();
+      }
+    };
+    document.addEventListener("keydown", on, true);
+    return () => {
+      document.removeEventListener("keydown", on, true);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [enabled, ref]);
+}
+
 export function Modal({
   open,
   onClose,
@@ -424,24 +499,34 @@ export function Modal({
   const { t } = useI18n();
   const { mounted, leaving } = usePresence(open, 160);
   const panel = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // обработчик через ref: родитель передаёт новую стрелку на каждом рендере (опрос раз в 500 мс),
+  // и эффект не должен из-за этого перезапускаться и снова дёргать фокус
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
-    panel.current?.focus();
+    const done = modalOpened();
     const on = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        close.current();
       }
     };
     window.addEventListener("keydown", on, true);
-    return () => window.removeEventListener("keydown", on, true);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener("keydown", on, true);
+      done();
+    };
+  }, [open]);
+  useFocusTrap(panel, open && mounted);
   if (!mounted) return null;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <button
         type="button"
         aria-label={t("closeTooltip")}
+        tabIndex={-1}
         onClick={onClose}
         className={`absolute inset-0 cursor-default bg-ink/30 backdrop-blur-[2px] ${leaving ? "animate-fade-out" : "animate-fade-in"}`}
       />
@@ -450,11 +535,14 @@ export function Modal({
         // biome-ignore lint/a11y/useSemanticElements: <dialog> мешает анимации ухода, хватает role
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative w-full max-w-md rounded-[20px] bg-white p-5 shadow-2xl shadow-ink/20 focus:outline-none ${leaving ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[20px] bg-white p-5 shadow-2xl shadow-ink/20 focus:outline-none ${leaving ? "animate-scale-out" : "animate-scale-in"}`}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-base font-semibold">
+            {title}
+          </h2>
           <IconButton label={t("closeTooltip")} onClick={onClose}>
             <IconX />
           </IconButton>
@@ -465,6 +553,13 @@ export function Modal({
   );
 }
 
+/** Свёрнутое содержимое не должно ловить Tab: атрибут inert ставим вручную (React 18 его не знает). */
+export function useInert(ref: RefObject<HTMLElement>, inert: boolean): void {
+  useEffect(() => {
+    ref.current?.toggleAttribute("inert", inert);
+  }, [ref, inert]);
+}
+
 /** Аккордеон: заголовок-кнопка и плавное раскрытие по высоте. */
 export function Disclosure({
   title,
@@ -473,6 +568,8 @@ export function Disclosure({
   children,
   extra,
 }: { title: ReactNode; open: boolean; onToggle: () => void; children: ReactNode; extra?: ReactNode }) {
+  const body = useRef<HTMLDivElement>(null);
+  useInert(body, !open);
   return (
     <div className="rounded-2xl border border-line">
       <button
@@ -496,7 +593,7 @@ export function Disclosure({
           </svg>
         </span>
       </button>
-      <div className="reveal" data-open={open}>
+      <div ref={body} className="reveal" data-open={open}>
         <div>
           <div className="px-3.5 pb-3.5">{children}</div>
         </div>

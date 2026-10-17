@@ -79,3 +79,32 @@ class ExplainRecord(OutputRecord):
 class ParseOneRequest(BaseModel):
     raw_address: str
     id: Any = None
+
+
+class ReferenceInfo(BaseModel):
+    file: str | None = None
+    counts: dict[str, int] = Field(default_factory=dict, description="записей справочника по типам")
+    houses: int | None = None
+    built_at: str | None = None
+    sources: list[str] = Field(default_factory=list)
+
+
+class TaggerInfo(BaseModel):
+    mode: str = Field(description="off | shadow | on | only")
+    loaded: bool
+    version: str | None = None
+    max_len: int | None = None
+    warmup_ms: float | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class HealthOut(BaseModel):
+    status: str = Field(description="ok | loading (503, пока грузятся справочник и модель)")
+    version: str
+    load_seconds: float | None = None
+    reference: ReferenceInfo | None = None
+    tagger: TaggerInfo | None = None
+
+
+class ConfigOut(BaseModel):
+    uncertain_threshold: float

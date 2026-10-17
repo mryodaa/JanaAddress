@@ -9,7 +9,6 @@ export interface TranslationDictionary {
   navCheck: string;
   serviceLoading: string;
   serviceUnavailable: string;
-  loading: string;
   osmAttribution: string;
 
   // Upload screen
@@ -29,12 +28,7 @@ export interface TranslationDictionary {
 
   // Session view
   searchPlaceholder: string;
-  onlyUncertain: string;
   inList: string;
-  shortcutsNav: string;
-  shortcutsUncertain: string;
-  shortcutsSave: string;
-  exportJson: string;
   newFile: string;
   parsingInProgress: string;
   sessionNotFound: string;
@@ -66,8 +60,6 @@ export interface TranslationDictionary {
   saveAndNext: string;
   confirmAndNext: string;
   reviewedBadge: string;
-  hideTrace: string;
-  showTrace: string;
 
   // Sources & tags
   sourceManual: string;
@@ -98,7 +90,6 @@ export interface TranslationDictionary {
   groupStreet: string;
   groupFlat: string;
   groupLandmark: string;
-  skip: string;
   revert: string;
   revertTo: string;
   setNull: string;
@@ -129,6 +120,79 @@ export interface TranslationDictionary {
   addedHint: string;
   sortHint: string;
 
+  // ошибки, доступность, пагинация
+  errorConnection: string;
+  retry: string;
+  sessionLoadError: string;
+  sessionFailed: string;
+  leaveConfirm: string;
+  rowReviewed: string;
+  rowNeedsReview: string;
+  recordsTableAria: string;
+  errorTitle: string;
+  errorHint: string;
+  errorReload: string;
+  fileTooLarge: string;
+  uploadProcessing: string;
+  langAria: string;
+  err413: string;
+  err422: string;
+  err409: string;
+  err404: string;
+  errServer: string;
+  positionUnknown: string;
+
+  // интерактивная гистограмма уверенности
+  histHint: string;
+  histRecords: string;
+  histShare: string;
+  histBelow: string;
+  histClickShow: string;
+  histClickReset: string;
+  histBarAria: string;
+  bucketChip: string;
+  bucketClear: string;
+
+  // окно экспорта
+  exportTitle: string;
+  exportScope: string;
+  exportAll: string;
+  exportCurrent: string;
+  exportCurrentNone: string;
+  exportSearch: string;
+  exportFields: string;
+  exportFieldsAlways: string;
+  exportSelectAll: string;
+  exportSelectNone: string;
+  exportFormat: string;
+  exportJsonHint: string;
+  exportCsvHint: string;
+  exportSources: string;
+  exportSummary: string;
+  exportDownload: string;
+  exportOpen: string;
+
+  // подтверждение, откладывание, отмена
+  filterSkipped: string;
+  filterReviewed: string;
+  defer: string;
+  deferHint: string;
+  skippedBadge: string;
+  unconfirm: string;
+  unconfirmAria: string;
+  returnToQueue: string;
+  returnAria: string;
+  toastConfirmed: string;
+  toastDeferred: string;
+  toastUnconfirmed: string;
+  toastReturned: string;
+  undo: string;
+  undone: string;
+  reviewProgress: string;
+  skippedCount: string;
+  rowSkipped: string;
+  kbDefer: string;
+
   // шаги пайплайна
   traceSummary: string;
   howParsed: string;
@@ -149,7 +213,6 @@ export interface TranslationDictionary {
   traceWinnerModel: string;
   traceOrientation: string;
   traceFinal: string;
-  traceLayout: string;
   traceDup: string;
   traceNoise: string;
 

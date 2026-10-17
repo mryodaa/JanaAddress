@@ -88,12 +88,27 @@ class Confidence:
         if final != prev:
             parts["cap"] = final - prev
         state.confidence = round(final, 3)
+        # слагаемые модели в баллах (логитах): вес × значение признака. В отличие от parts они не зависят от
+        # порядка, сумма intercept + points = logit, p = sigmoid(logit): по ним UI объясняет, почему такой итог
+        terms = [
+            {"key": k, "x": round(v, 3), "w": round(weights[k], 3), "points": round(weights[k] * v, 3)}
+            for k, v in x.items()
+            if v and weights.get(k)
+        ]
         tr.changes = {
             "confidence": state.confidence,
             "parts": {k: round(v, 3) for k, v in parts.items()},
             "features": {k: round(v, 3) for k, v in x.items()},
+            "intercept": round(float(cfg["intercept"]), 3),
+            "terms": terms,
             "logit": round(z, 3),
+            "bounds": [LO, HI],
             "unparsed": [t.text for t in content if t.free],
+            # для объяснения в UI: сколько слов и чисел в строке, надёжность каждого поля из строки (самое слабое
+            # даёт min_score) и числа, которые не пригодились (флаг extra_numbers)
+            "content": len(content),
+            "scores": {f: round(fv.score, 2) for f, fv in state.fields.items() if fv.source == SOURCE_STRING},
+            "extra": [t.text for t in state.tokens if (t.used_by or "").startswith("extra")],
         }
         state.trace.append(tr)
         return state
