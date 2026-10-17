@@ -1,10 +1,10 @@
-"""OSM .pbf -> cache/osm_raw.jsonl: административные границы, населённые пункты, микрорайоны, улицы, дома.
+"""OSM .pbf -> cache/osm_raw.jsonl: границы, населённые пункты, микрорайоны и ЖК, улицы, дома, объекты-ориентиры.
 
     python scripts/build_reference/osm_extract.py [cache/kazakhstan-latest.osm.pbf]
 
-Пишет по одной JSON-записи на объект: {"t": "boundary"|"place"|"street"|"house", ...}.
-Геометрия: границы и площадные place в WKB hex, остальное точкой (lon, lat).
-Нужен pyosmium (pip install osmium). © участники OpenStreetMap, ODbL 1.0.
+По одной JSON-записи на объект: {"t": "boundary"|"area_place"|"place"|"street"|"house"|"poi", ...}.
+Геометрия: полигоны и линии улиц в WKB hex, дома и объекты точкой (lon, lat) по центроиду.
+Только топонимы и теги, целых адресных строк нет. Нужен pyosmium. © участники OpenStreetMap, ODbL 1.0.
 """
 
 from __future__ import annotations
@@ -12,79 +12,48 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 import osmium
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from osm_common import (
+    ADMIN_LEVELS,
+    AREA_PLACES,
+    HIGHWAYS,
+    PLACE_POINTS,
+    names,
+    poi_kind,
+)
 
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 
-ADMIN_LEVELS = {"4", "5", "6", "7", "8", "9", "10"}
-PLACE_POINTS = {
-    "city",
-    "town",
-    "village",
-    "hamlet",
-    "suburb",
-    "neighbourhood",
-    "quarter",
-    "isolated_dwelling",
-    "locality",
-    "allotments",
-}
-AREA_PLACES = {"suburb", "neighbourhood", "quarter", "city", "town", "village", "allotments"}
-HIGHWAYS = {
-    "motorway",
-    "trunk",
-    "primary",
-    "secondary",
-    "tertiary",
-    "unclassified",
-    "residential",
-    "living_street",
-    "pedestrian",
-    "service",
-    "road",
-    "track",
-    "footway",
-    "primary_link",
-    "secondary_link",
-    "tertiary_link",
-}
-NAME_KEYS = (
-    "name",
-    "name:ru",
-    "name:kk",
-    "name:en",
-    "old_name",
-    "old_name:ru",
-    "alt_name",
-    "alt_name:ru",
-    "official_name",
-    "official_name:ru",
-    "short_name",
-)
-
-
-def names(tags: Any) -> dict[str, str]:
-    return {k: tags.get(k) for k in NAME_KEYS if tags.get(k)}
+Sink = Callable[[dict[str, Any]], None]
 
 
 class Extractor(osmium.SimpleHandler):  # type: ignore[misc]
-    def __init__(self, out: TextIO) -> None:
+    """Отбор объектов; запись делает sink (файл JSONL или агрегатор разведки)."""
+
+    def __init__(self, sink: Sink) -> None:
         super().__init__()
-        self.out = out
+        self.sink = sink
         self.wkb = osmium.geom.WKBFactory()
         self.counts: dict[str, int] = {}
 
     def emit(self, rec: dict[str, Any]) -> None:
         self.counts[rec["t"]] = self.counts.get(rec["t"], 0) + 1
-        self.out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        self.sink(rec)
 
     def node(self, n: Any) -> None:
         tags = n.tags
-        if "place" in tags and tags["place"] in PLACE_POINTS and "name" in tags:
+        if not len(tags):
+            return
+        pt = [n.location.lon, n.location.lat]
+        if tags.get("place") in PLACE_POINTS and "name" in tags:
             self.emit(
                 {
                     "t": "place",
@@ -93,40 +62,41 @@ class Extractor(osmium.SimpleHandler):  # type: ignore[misc]
                     "names": names(tags),
                     "pop": tags.get("population"),
                     "kato": tags.get("kato") or tags.get("ref:kato"),
-                    "pt": [n.location.lon, n.location.lat],
+                    "pt": pt,
                 }
             )
-        if "addr:housenumber" in tags and ("addr:street" in tags or "addr:place" in tags):
-            self.emit(self._house(tags, [n.location.lon, n.location.lat], f"n{n.id}"))
+        if "addr:housenumber" in tags:
+            self.emit(self._house(tags, pt, f"n{n.id}", building=False))
+        self._poi(tags, pt, f"n{n.id}")
 
     def way(self, w: Any) -> None:
         tags = w.tags
+        if not len(tags):
+            return
         hw = tags.get("highway")
-        if (hw in HIGHWAYS and "name" in tags) or (
-            "addr:housenumber" in tags and ("addr:street" in tags or "addr:place" in tags)
-        ):
-            try:
-                locs = [(nd.location.lon, nd.location.lat) for nd in w.nodes if nd.location.valid()]
-            except osmium.InvalidLocationError:
-                return
-            if not locs:
-                return
-            if hw in HIGHWAYS and "name" in tags:
-                mid = locs[len(locs) // 2]
-                self.emit(
-                    {
-                        "t": "street",
-                        "osm": f"w{w.id}",
-                        "hw": hw,
-                        "names": names(tags),
-                        "pt": list(mid),
-                        "pts": [list(locs[0]), list(mid), list(locs[-1])],
-                    }
-                )
-            if "addr:housenumber" in tags:
-                cx = sum(x for x, _ in locs) / len(locs)
-                cy = sum(y for _, y in locs) / len(locs)
-                self.emit(self._house(tags, [cx, cy], f"w{w.id}"))
+        is_street = hw in HIGHWAYS and "name" in tags
+        is_house = "addr:housenumber" in tags
+        kind = poi_kind(tags)
+        is_poi = kind is not None and ("name" in tags or "brand" in tags)
+        if not (is_street or is_house or is_poi):
+            return
+        try:
+            locs = [(nd.location.lon, nd.location.lat) for nd in w.nodes if nd.location.valid()]
+        except osmium.InvalidLocationError:
+            return
+        if not locs:
+            return
+        if is_street and len(locs) >= 2:
+            line = self.wkb.create_linestring(w)
+            mid = locs[len(locs) // 2]
+            self.emit({"t": "street", "osm": f"w{w.id}", "hw": hw, "names": names(tags), "pt": list(mid), "wkb": line})
+        if is_house or is_poi:
+            ring = locs[:-1] if len(locs) > 1 and locs[0] == locs[-1] else locs
+            cx = sum(x for x, _ in ring) / len(ring)
+            cy = sum(y for _, y in ring) / len(ring)
+            if is_house:
+                self.emit(self._house(tags, [cx, cy], f"w{w.id}", building="building" in tags))
+            self._poi(tags, [cx, cy], f"w{w.id}")
 
     def area(self, a: Any) -> None:
         tags = a.tags
@@ -137,25 +107,49 @@ class Extractor(osmium.SimpleHandler):  # type: ignore[misc]
             tags.get("landuse") == "residential" and "name" in tags
         ):
             kind = "area_place"
-        if not kind:
+        poi_rel = not a.from_way() and poi_kind(tags) is not None and ("name" in tags or "brand" in tags)
+        if not kind and not poi_rel:
             return
         try:
             geom = self.wkb.create_multipolygon(a)
         except Exception:
             return
-        rec = {
-            "t": kind,
-            "osm": f"{'w' if a.from_way() else 'r'}{a.orig_id()}",
-            "names": names(tags),
-            "level": tags.get("admin_level"),
-            "place": tags.get("place") or tags.get("landuse"),
-            "kato": tags.get("kato") or tags.get("ref:kato") or tags.get("ref"),
-            "wkb": geom,
-        }
-        self.emit(rec)
+        if kind:
+            self.emit(
+                {
+                    "t": kind,
+                    "osm": f"{'w' if a.from_way() else 'r'}{a.orig_id()}",
+                    "names": names(tags),
+                    "level": tags.get("admin_level"),
+                    "place": tags.get("place") or tags.get("landuse"),
+                    "kato": tags.get("kato") or tags.get("ref:kato") or tags.get("ref"),
+                    "wkb": geom,
+                }
+            )
+        if poi_rel:
+            from shapely import wkb as swkb
+
+            c = swkb.loads(geom, hex=True).centroid
+            self._poi(tags, [c.x, c.y], f"r{a.orig_id()}")
+
+    def _poi(self, tags: Any, pt: list[float], osm: str) -> None:
+        kind = poi_kind(tags)
+        if kind is None or not ("name" in tags or "brand" in tags):
+            return
+        self.emit(
+            {
+                "t": "poi",
+                "osm": osm,
+                "kind": kind,
+                "names": names(tags),
+                "brand": tags.get("brand") or tags.get("brand:ru"),
+                "brand_wd": tags.get("brand:wikidata"),
+                "pt": pt,
+            }
+        )
 
     @staticmethod
-    def _house(tags: Any, pt: list[float], osm: str) -> dict[str, Any]:
+    def _house(tags: Any, pt: list[float], osm: str, building: bool) -> dict[str, Any]:
         return {
             "t": "house",
             "osm": osm,
@@ -163,9 +157,21 @@ class Extractor(osmium.SimpleHandler):  # type: ignore[misc]
             "street": tags.get("addr:street"),
             "place": tags.get("addr:place"),
             "city": tags.get("addr:city"),
-            "district": tags.get("addr:district") or tags.get("addr:suburb"),
+            "district": tags.get("addr:district"),
+            "suburb": tags.get("addr:suburb"),
+            "postcode": tags.get("addr:postcode"),
+            "bld": building,
             "pt": pt,
         }
+
+
+def run(pbf: Path, sink: Sink, idx_dir: Path = CACHE) -> dict[str, int]:
+    h = Extractor(sink)
+    # индекс координат узлов на диске: не держим весь Казахстан в памяти
+    idx_dir.mkdir(parents=True, exist_ok=True)
+    idx = f"sparse_file_array,{(idx_dir / 'nodes.idx').as_posix()}"
+    h.apply_file(str(pbf), locations=True, idx=idx)
+    return h.counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,11 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as fh:
-        h = Extractor(fh)
-        # индекс координат узлов на диске: не держим весь Казахстан в памяти
-        idx = f"sparse_file_array,{(CACHE / 'nodes.idx').as_posix()}"
-        h.apply_file(str(args.pbf), locations=True, idx=idx)
-    print(f"{args.out}: {h.counts}")
+        counts = run(args.pbf, lambda rec: fh.write(json.dumps(rec, ensure_ascii=False) + "\n"), args.out.parent)
+    print(f"{args.out}: {counts}")
     return 0
 
 

@@ -12,6 +12,7 @@ export interface TranslationDictionary {
   serviceTitle: string;
   serviceUnavailable: string;
   loading: string;
+  osmAttribution: string;
 
   // Upload screen
   dropTitle: string;

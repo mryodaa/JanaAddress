@@ -30,6 +30,15 @@ export const FIELD_COLORS: Record<FieldName, { mark: string; dot: string }> = {
   landmark: { mark: "bg-teal-100 text-teal-900 ring-teal-300", dot: "bg-teal-500" },
 };
 
+/** Как восстановлено поле по OSM: по дому, по улице, полигону, ближайшей точке, ориентиру. */
+const VIA_LABELS: Record<string, Record<Language, string>> = {
+  house: { ru: "дом", kk: "үй", en: "house" },
+  street: { ru: "улица", kk: "көше", en: "street" },
+  polygon: { ru: "полигон", kk: "полигон", en: "polygon" },
+  point: { ru: "точка", kk: "нүкте", en: "point" },
+  poi: { ru: "ориентир", kk: "бағдар", en: "landmark" },
+};
+
 export function sourceLabel(source: string | null | undefined, lang: Language = "ru"): string | null {
   if (!source || source === "string") return null;
   if (source === "manual") {
@@ -37,9 +46,12 @@ export function sourceLabel(source: string | null | undefined, lang: Language = 
     if (lang === "en") return "edit";
     return "правка";
   }
-  const [, s] = source.split(":");
+  // reference:osm:house | reference:osm:street | reference:osm:polygon | reference:osm:point | reference:osm:poi,
+  // reference:seed, reference:kato
+  const [, s, via] = source.split(":");
   const prefix = lang === "kk" ? "анықтамалық" : lang === "en" ? "reference" : "справочник";
-  return s ? `${prefix} · ${s.toUpperCase()}` : prefix;
+  const how = via ? (VIA_LABELS[via]?.[lang] ?? via) : null;
+  return [prefix, s?.toUpperCase(), how].filter(Boolean).join(" · ");
 }
 
 export interface Piece {

@@ -15,7 +15,7 @@ from jana_address import config
 from jana_address.pipeline.util import tidy_value
 
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = pytest.mark.skipif(not config.REFERENCE_DB.exists(), reason="нет reference.sqlite")
+pytestmark = pytest.mark.skipif(not config.SYNTH_DB.exists(), reason="нет снапшота справочника синтетики")
 
 
 def test_ltext_ops() -> None:
@@ -56,7 +56,7 @@ def _check_spans(rec: dict[str, object], raw_key: str = "raw_address", spans_key
 
 @pytest.mark.parametrize(("chaos", "strong"), [(False, False), (True, False), (True, True), (False, True)])
 def test_spans_match_gold(chaos: bool, strong: bool) -> None:
-    b = Builder(Ref(config.REFERENCE_DB), random.Random(5), chaos=chaos, strong=strong)
+    b = Builder(Ref(config.SYNTH_DB), random.Random(5), chaos=chaos, strong=strong)
     bad = [p for i in range(400) for p in _check_spans(b.record(i))]
     assert bad == []
 
@@ -72,7 +72,7 @@ def test_dev_sets_reproducible(name: str, seed: int, n: int, chaos: bool) -> Non
     if not path.exists():
         pytest.skip(f"нет {path.name}")
     old = json.loads(path.read_text(encoding="utf-8"))[:n]
-    b = Builder(Ref(config.REFERENCE_DB), random.Random(seed), chaos=chaos)
+    b = Builder(Ref(config.SYNTH_DB), random.Random(seed), chaos=chaos)
     new = [b.record(i + 1) for i in range(n)]
     for o, r in zip(old, new, strict=True):
         r.pop("_spans")
@@ -81,7 +81,7 @@ def test_dev_sets_reproducible(name: str, seed: int, n: int, chaos: bool) -> Non
 
 
 def test_split_disjoint() -> None:
-    train, unseen = Ref(config.REFERENCE_DB, "train"), Ref(config.REFERENCE_DB, "unseen")
+    train, unseen = Ref(config.SYNTH_DB, "train"), Ref(config.SYNTH_DB, "unseen")
     for c in train.cities.values():
         assert not (c.streets and c.kind != "republican" and held_out("city", c.id, HOLDOUT_CITY_PCT))
         assert not any(held_out("street", s[0], HOLDOUT_STREET_PCT) for s in c.streets)

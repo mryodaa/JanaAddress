@@ -219,7 +219,7 @@ export interface components {
             value: string | null;
             /**
              * Source
-             * @description string | reference:<osm|kato|seed> | manual
+             * @description string | reference:osm:<house|street|polygon|point|poi> | reference:<seed|kato> | manual
              */
             source: string | null;
             /**

@@ -19,10 +19,11 @@ frontend/.vite/
 *.egg-info/
 *.tsbuildinfo
 .CLAUDE.md
-docs/
-requrements-train.txt
 
 # обучение теггера: окружение, чекпойнты и логи (артефакт для образа лежит в models/)
 .venv-train/
 training/runs/
 training_*.log
+
+# снапшот справочника для генератора синтетики (config.SYNTH_DB), не в git и не в образе
+reference/reference.synth_v1.sqlite

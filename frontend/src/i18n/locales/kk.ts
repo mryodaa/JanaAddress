@@ -5,6 +5,7 @@ export const kk: TranslationDictionary = {
   navBatch: "Топтама",
   navCheck: "Жолды тексеру",
   serviceReady: "қызмет дайын · офлайн",
+  osmAttribution: "Анықтамалық: © OpenStreetMap қатысушылары, ODbL 1.0",
   serviceLoading: "жүктелуде…",
   serviceTitle: "анықтамалық жүктелді",
   serviceUnavailable: "қызмет қолжетімсіз",

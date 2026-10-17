@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Синтетический мини-фрагмент для теста сборки справочника (не реальные данные OSM). -->
+<!-- Синтетический мини-фрагмент для теста сборки справочника (не реальные данные OSM).
+     Алматы (admin 4) с районами Алатауский (запад) и Медеуский (восток) на 6-м уровне; Алматинская область
+     (admin 4) с Илийским и Талгарским районами (admin 6) и сёлами; мкр полигоном и точкой, ЖК внутри мкр,
+     улица через два района, одноимённые улицы разного типа, старое и казахское имя улицы, объекты. -->
 <osm version="0.6" generator="handmade">
+  <!-- Алматы и его районы -->
   <node id="1" lat="43.20" lon="76.80"/><node id="2" lat="43.20" lon="77.00"/>
   <node id="3" lat="43.35" lon="77.00"/><node id="4" lat="43.35" lon="76.80"/>
   <node id="5" lat="43.20" lon="76.90"/><node id="6" lat="43.35" lon="76.90"/>
@@ -23,4 +27,62 @@
     <tag k="highway" v="residential"/><tag k="name" v="Курильская улица"/></way>
   <way id="300"><nd ref="30"/><nd ref="31"/><nd ref="32"/><nd ref="33"/><nd ref="30"/>
     <tag k="building" v="yes"/><tag k="addr:street" v="улица Абая"/><tag k="addr:housenumber" v="10"/></way>
+
+  <!-- мкр Самал-3 полигоном, ЖК Хайвил внутри него, дом в обоих, проспект Достык -->
+  <node id="50" lat="43.245" lon="76.955"/><node id="51" lat="43.245" lon="76.965"/>
+  <node id="52" lat="43.255" lon="76.965"/><node id="53" lat="43.255" lon="76.955"/>
+  <node id="54" lat="43.248" lon="76.958"/><node id="55" lat="43.248" lon="76.962"/>
+  <node id="56" lat="43.252" lon="76.962"/><node id="57" lat="43.252" lon="76.958"/>
+  <node id="58" lat="43.2499" lon="76.9599"/><node id="59" lat="43.2499" lon="76.9601"/>
+  <node id="60" lat="43.2501" lon="76.9601"/><node id="61" lat="43.2501" lon="76.9599"/>
+  <node id="62" lat="43.240" lon="76.9605"/><node id="63" lat="43.260" lon="76.9605"/>
+  <way id="400"><nd ref="50"/><nd ref="51"/><nd ref="52"/><nd ref="53"/><nd ref="50"/>
+    <tag k="place" v="neighbourhood"/><tag k="name" v="Самал-3"/><tag k="name:kk" v="Самал-3 шағын ауданы"/></way>
+  <way id="401"><nd ref="54"/><nd ref="55"/><nd ref="56"/><nd ref="57"/><nd ref="54"/>
+    <tag k="landuse" v="residential"/><tag k="name" v="ЖК Хайвил"/></way>
+  <way id="402"><nd ref="58"/><nd ref="59"/><nd ref="60"/><nd ref="61"/><nd ref="58"/>
+    <tag k="building" v="apartments"/><tag k="addr:street" v="проспект Достык"/><tag k="addr:housenumber" v="5"/></way>
+  <way id="403"><nd ref="62"/><nd ref="63"/>
+    <tag k="highway" v="primary"/><tag k="name" v="проспект Достык"/><tag k="name:kk" v="Достық даңғылы"/></way>
+
+  <!-- дом рядом с точкой мкр Самал-2 (полигона нет); улица и короткий переулок Жамбыла -->
+  <node id="64" lat="43.232" lon="76.931"><tag k="addr:street" v="улица Жамбыла"/><tag k="addr:housenumber" v="7"/></node>
+  <node id="65" lat="43.2322" lon="76.925"/><node id="66" lat="43.2322" lon="76.940"/>
+  <node id="67" lat="43.236" lon="76.925"/><node id="68" lat="43.236" lon="76.926"/>
+  <way id="404"><nd ref="65"/><nd ref="66"/><tag k="highway" v="residential"/><tag k="name" v="улица Жамбыла"/></way>
+  <way id="405"><nd ref="67"/><nd ref="68"/><tag k="highway" v="residential"/><tag k="name" v="переулок Жамбыла"/></way>
+
+  <!-- улица Сатпаева через два района: два дома в Алатауском, один в Медеуском -->
+  <node id="70" lat="43.27" lon="76.86"/><node id="71" lat="43.27" lon="76.96"/>
+  <node id="72" lat="43.2702" lon="76.87"><tag k="addr:street" v="улица Сатпаева"/><tag k="addr:housenumber" v="1"/></node>
+  <node id="73" lat="43.2702" lon="76.88"><tag k="addr:street" v="улица Сатпаева"/><tag k="addr:housenumber" v="3"/></node>
+  <node id="74" lat="43.2702" lon="76.95"><tag k="addr:street" v="улица Сатпаева"/><tag k="addr:housenumber" v="2"/></node>
+  <way id="406"><nd ref="70"/><nd ref="71"/><tag k="highway" v="secondary"/><tag k="name" v="улица Сатпаева"/></way>
+
+  <!-- объекты-ориентиры -->
+  <node id="80" lat="43.26" lon="76.97"><tag k="shop" v="supermarket"/><tag k="name" v="Magnum"/><tag k="brand" v="Magnum"/></node>
+  <node id="81" lat="43.30" lon="76.83"><tag k="amenity" v="school"/><tag k="name" v="Школа-гимназия № 25"/></node>
+
+  <!-- Алматинская область, Илийский и Талгарский районы, сёла -->
+  <node id="90" lat="43.36" lon="76.0"/><node id="91" lat="43.36" lon="78.0"/>
+  <node id="92" lat="44.5" lon="78.0"/><node id="93" lat="44.5" lon="76.0"/>
+  <node id="94" lat="43.40" lon="76.5"/><node id="95" lat="43.40" lon="77.5"/>
+  <node id="96" lat="44.0" lon="77.5"/><node id="97" lat="44.0" lon="76.5"/>
+  <node id="98" lat="43.40" lon="77.95"/><node id="99" lat="44.0" lon="77.95"/>
+  <way id="500"><nd ref="90"/><nd ref="91"/><nd ref="92"/><nd ref="93"/><nd ref="90"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="4"/><tag k="name" v="Алматинская область"/><tag k="name:kk" v="Алматы облысы"/></way>
+  <way id="501"><nd ref="94"/><nd ref="95"/><nd ref="96"/><nd ref="97"/><nd ref="94"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="6"/><tag k="name" v="Илийский район"/><tag k="name:kk" v="Іле ауданы"/></way>
+  <way id="502"><nd ref="95"/><nd ref="98"/><nd ref="99"/><nd ref="96"/><nd ref="95"/>
+    <tag k="boundary" v="administrative"/><tag k="admin_level" v="6"/><tag k="name" v="Талгарский район"/></way>
+  <node id="110" lat="43.45" lon="76.85"><tag k="place" v="village"/><tag k="name" v="Боралдай"/><tag k="old_name" v="Бурундай"/></node>
+  <node id="111" lat="43.50" lon="77.0"><tag k="place" v="village"/><tag k="name" v="Ынтымак"/><tag k="name:kk" v="Ынтымақ"/></node>
+  <node id="112" lat="43.6" lon="77.0"><tag k="place" v="village"/><tag k="name" v="Акжар"/></node>
+  <node id="113" lat="43.6" lon="77.7"><tag k="place" v="village"/><tag k="name" v="Акжар"/></node>
+  <node id="114" lat="43.395" lon="77.2"><tag k="place" v="village"/><tag k="name" v="Ащибулак"/></node>
+  <node id="115" lat="43.501" lon="76.999"/><node id="116" lat="43.501" lon="77.001"/>
+  <way id="503"><nd ref="115"/><nd ref="116"/><tag k="highway" v="residential"/><tag k="name" v="улица Райымбека"/></way>
+  <node id="117" lat="43.5012" lon="77.0"><tag k="addr:street" v="улица Райымбека"/><tag k="addr:housenumber" v="12"/></node>
+  <node id="118" lat="43.601" lon="77.699"/><node id="119" lat="43.601" lon="77.701"/>
+  <way id="504"><nd ref="118"/><nd ref="119"/><tag k="highway" v="residential"/><tag k="name" v="улица Садовая"/></way>
 </osm>

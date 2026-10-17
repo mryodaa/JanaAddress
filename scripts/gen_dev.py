@@ -29,9 +29,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from jana_address import config  # noqa: E402
 from scripts.synth.builder import Builder, Ref  # noqa: E402
 
-DB = ROOT / "reference" / "reference.sqlite"
+DB = config.SYNTH_DB  # снапшот: пересборка справочника не двигает наборы и split unseen
 
 
 def main(argv: list[str] | None = None) -> int:

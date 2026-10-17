@@ -25,7 +25,14 @@ flags:
   guessed_street: -0.08
   guessed_city: -0.05
   extra_numbers: -0.08
-  district_ambiguous: -0.04
+  district_ambiguous: -0.04    # улица в нескольких районах: взят лучший по доле (Q20)
+  # восстановление по справочнику с пониженной уверенностью (pipeline/reference_step.py); поля вне строки
+  # в метрику почти не входят, поэтому поправки маленькие: только чтобы UI показал сомнение
+  living_area_ambiguous: -0.02  # улица в нескольких мкр: взят лучший по доле
+  living_area_by_point: -0.01   # мкр дома по ближайшей place-точке, полигона нет
+  district_by_landmark: -0.02   # район по ориентиру, улицы в строке нет
+  district_by_near_polygon: -0.01  # село чуть за границей полигона района
+  street_type_dominant: -0.01   # тип улицы без маркера: доминирующий среди одноимённых
   street_not_in_reference: -0.03
   building_part_ignored: -0.05
   marker_without_number: -0.05

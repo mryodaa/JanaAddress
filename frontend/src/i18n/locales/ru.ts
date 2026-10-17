@@ -9,6 +9,7 @@ export const ru: TranslationDictionary = {
   serviceTitle: "справочник загружен",
   serviceUnavailable: "сервис недоступен",
   loading: "Загрузка…",
+  osmAttribution: "Справочник: © участники OpenStreetMap, ODbL 1.0",
 
   dropTitle: "Перетащите JSON-файл с адресами",
   dropHintPre: "формат как у ",

@@ -18,8 +18,14 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-_SETTLEMENT_PREFIX = re.compile(r"^(г\.|город|пос\.|п\.|с\.|село|аул|а\.|ст\.|станция|пгт)\s*", re.I)
-_DISTRICT = re.compile(r"\s*(район|р-н)\s*$", re.I)
+_SETTLEMENT_PREFIX = re.compile(
+    r"^(г\.|город|пос\.|п\.|с\.|село|аул|а\.|ст\.|станция|пгт|рзд\.)\s*|\s+(қ\.|а\.|ауылы|кенті)$", re.I
+)
+_CTRL = re.compile(r"[\x00-\x1f\x7f]+")
+_DISTRICT = re.compile(r"\s*(район|р-н|ауданы)\s*$", re.I)
+_DISTRICT_PREFIX = re.compile(r"^\s*(район|ауданы)\s+", re.I)  # «район Есиль», «район Алматы» (Астана)
+_OKRUG = re.compile(r"(с\.\s*о\.?|п\.\s*о\.?|а\.\s*о\.?|сельский округ|ауылдық округ)", re.I)
+_CITY_ADMIN = re.compile(r"(г\.\s*а\.|қ\.\s*ә\.)\s*$", re.I)
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -49,54 +55,100 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     for r in rows[head_i + 1 :]:
         if len(r) <= max(ci, ri) or not re.fullmatch(r"\d{9}", r[ci]):
             continue
-        out.append({"code": r[ci], "ru": r[ri], "kk": r[ki] if ki is not None and ki < len(r) else ""})
+        kk = r[ki] if ki is not None and ki < len(r) else ""
+        # в выгрузке встречаются управляющие символы вместо пробела («Район\x01имени Габита Мусрепова»)
+        out.append({"code": r[ci], "ru": _CTRL.sub(" ", r[ri]).strip(), "kk": _CTRL.sub(" ", kk).strip()})
     return out
 
 
+def _parent(code: str, codes: set[str]) -> str | None:
+    """Ближайший существующий предок: код с самым длинным общим началом и нулями в хвосте. Разбиение кода
+    AABBCCDDD не всегда по парам: районы Тараза («район Әулиеата» 311011100) лежат под «г.Тараз» (311010000)."""
+    for cut in range(8, 1, -1):
+        p = code[:cut] + "0" * (9 - cut)
+        if p != code and p in codes:
+            return p
+    return None
+
+
+def _kind(ru: str) -> str:
+    if _OKRUG.search(ru):
+        return "okrug"
+    if _CITY_ADMIN.search(ru):
+        return "city_admin"
+    if _DISTRICT.search(ru) or _DISTRICT_PREFIX.match(ru):
+        return "district"
+    if re.match(r"^г\.", ru, re.I):
+        return "city"
+    if re.match(r"^(п\.|пгт|пос\.)", ru, re.I):
+        return "town"
+    return "village"
+
+
+def _bare(name: str) -> str:
+    return re.sub(r"\s+", " ", _SETTLEMENT_PREFIX.sub("", name)).strip()
+
+
+def _district_name(name: str) -> str:
+    name = re.sub(r"(^|\s)им\.\s*", r"\1имени ", name)  # «им.Казыбек би» -> «имени Казыбек би», как у ядра
+    return re.sub(r"\s+", " ", _DISTRICT_PREFIX.sub("", _DISTRICT.sub("", name))).replace("ауданы", "").strip()
+
+
 def convert(rows: list[dict[str, str]]) -> dict[str, Any]:
-    prov: dict[str, str] = {}
-    dist: dict[str, str] = {}
+    """Дерево КАТО -> области, районы (областей и городов), населённые пункты с районом области.
+    Сельские округа и городские администрации («Г.А.») сами в справочник не идут: это контейнеры."""
+    by = {r["code"]: r for r in rows}
+    codes = set(by)
     out: dict[str, list[dict[str, Any]]] = {"provinces": [], "districts": [], "cities": []}
-    for r in rows:
-        c = r["code"]
-        aa, bb, cc, ddd = c[:2], c[2:4], c[4:6], c[6:]
-        if bb == "00" and cc == "00" and ddd == "000":
-            prov[aa] = r["ru"]
-            kind = "city" if not re.search(r"област", r["ru"], re.I) else "oblast"
-            out["provinces"].append({"name": r["ru"], "kind": kind, "kato": c, "aliases": [r["kk"]]})
-        elif cc == "00" and ddd == "000" and aa in prov:
-            if _DISTRICT.search(r["ru"]):
-                name = _DISTRICT.sub("", r["ru"]).strip()
-                dist[aa + bb] = name
-                out["districts"].append(
-                    {
-                        "name": name,
-                        "province": prov[aa],
-                        "kato": c,
-                        "aliases": [_DISTRICT.sub("", r["kk"]).replace("ауданы", "").strip()],
-                    }
-                )
-            else:  # город областного значения
-                out["cities"].append(
-                    {
-                        "name": _SETTLEMENT_PREFIX.sub("", r["ru"]).strip(),
-                        "kind": "city",
-                        "province": prov[aa],
-                        "kato": c,
-                        "aliases": [r["kk"]],
-                    }
-                )
-        elif ddd != "000" and aa in prov:
-            name = _SETTLEMENT_PREFIX.sub("", r["ru"]).strip()
-            kind = "town" if re.match(r"^(г\.|город|пгт|пос)", r["ru"], re.I) else "village"
+    prov_name: dict[str, str] = {}
+    for c, r in by.items():
+        if c[2:] == "0000000":
+            name = _bare(r["ru"])
+            kind = "oblast" if re.search(r"област", r["ru"], re.I) else "city"
+            prov_name[c[:2]] = name
+            out["provinces"].append({"name": name, "kind": kind, "kato": c, "aliases": [[r["kk"], "kk"]]})
+    rep = {aa for aa, _ in prov_name.items() if not re.search(r"област", by[aa + "0000000"]["ru"], re.I)}
+
+    def ancestors(c: str) -> list[dict[str, str]]:
+        chain = []
+        p = _parent(c, codes)
+        while p is not None:
+            chain.append(by[p])
+            p = _parent(p, codes)
+        return chain
+
+    for c, r in sorted(by.items()):
+        aa = c[:2]
+        if c[2:] == "0000000" or aa not in prov_name:
+            continue
+        kind = _kind(r["ru"])
+        chain = ancestors(c)
+        city_anc = next((a for a in chain if _kind(a["ru"]) == "city"), None)
+        dist_anc = next((a for a in chain if _kind(a["ru"]) == "district"), None)
+        if kind == "district":
+            item: dict[str, Any] = {
+                "name": _district_name(r["ru"]),
+                "province": prov_name[aa],
+                "kato": c,
+                "aliases": [[_district_name(r["kk"]), "kk"]],
+            }
+            if aa in rep:
+                item["city"] = prov_name[aa]
+            elif city_anc is not None:
+                item["city"] = _bare(city_anc["ru"])
+            out["districts"].append(item)
+        elif kind in ("city", "town", "village"):
+            if aa in rep and kind == "city":
+                continue  # сам город респ. значения уже есть как область-город
             out["cities"].append(
                 {
-                    "name": name,
+                    "name": _bare(r["ru"]),
                     "kind": kind,
-                    "province": prov[aa],
-                    "district": dist.get(aa + bb),
+                    "province": prov_name[aa],
+                    "district": _district_name(dist_anc["ru"]) if dist_anc is not None and aa not in rep else None,
+                    "district_method": "kato",
                     "kato": c,
-                    "aliases": [_SETTLEMENT_PREFIX.sub("", r["kk"]).strip()],
+                    "aliases": [[_bare(r["kk"]), "kk"]],
                 }
             )
     return out

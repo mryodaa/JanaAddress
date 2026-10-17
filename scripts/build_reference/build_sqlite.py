@@ -1,11 +1,13 @@
 """Сборка reference/reference.sqlite из ядра (seed/*.yaml) и, если есть, выгрузок OSM и КАТО.
 
     python scripts/build_reference/build_sqlite.py                       # только ядро
-    python scripts/build_reference/build_sqlite.py --osm cache/osm_assigned.json --kato cache/kato.json
+    python scripts/build_reference/build_sqlite.py --osm cache/osm_assigned --kato cache/kato.json
 
 Промежуточный формат OSM/КАТО (готовят osm_extract.py + assign_districts.py, kato.py) ссылается на
 сущности по названиям: {"provinces": [...], "districts": [...], "cities": [...], "living_areas": [...],
-"streets": [...], "houses": [...]}. Ядро имеет приоритет: его названия канонические для ответа.
+"streets": [...], "houses": [...], "pois": [...]}. OSM приходит каталогом: meta.json + streets/houses/pois.jsonl
+(дома читаются потоком). Алиасы: строка или [текст, язык]. Ядро имеет приоритет: его названия канонические
+для ответа. Вся геометрия уже посчитана в assign_districts.py: здесь только слияние по названиям и id.
 Скрипт пишет статистику покрытия в reference/coverage.json (идёт в docs/REFERENCE.md).
 """
 
@@ -18,6 +20,7 @@ import re
 import sqlite3
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,12 +39,23 @@ _DIST_WORDS = re.compile(r"\s*(район|ауданы|р-н)\s*", re.I)
 
 
 _POSTCODE = re.compile(r"\b\d{6}\b")
+# адрес в имени объекта OSM («переулок Кузнечный дом 28 кв.12»): номер дома / квартиры с маркером
+_ADDR_PART = re.compile(r"(^|\s)(дом|д|кв|квартира)\.?\s*\d", re.I)
+
+Alias = str | list[str] | tuple[str, ...]
+MERGE_LANGS = frozenset({"ru", "kk", "en", "official", "short"})  # языки алиасов, по которым сливаются улицы
 
 
 def toponym_ok(name: str | None) -> bool:
     """Отсев мусора OSM: целые адреса в addr:street («Gogol St 15, Almaty, Kazakhstan») и т.п.
     Справочник хранит только топонимы, поэтому запятые, индексы и длинные строки не берём."""
-    return bool(name) and "," not in name and len(name) <= 60 and not _POSTCODE.search(name)  # type: ignore[arg-type]
+    return (
+        bool(name)
+        and "," not in name  # type: ignore[operator]
+        and len(name) <= 60  # type: ignore[arg-type]
+        and not _POSTCODE.search(name)  # type: ignore[arg-type]
+        and not _ADDR_PART.search(name)  # type: ignore[arg-type]
+    )
 
 
 def province_key(name: str) -> str:
@@ -49,7 +63,23 @@ def province_key(name: str) -> str:
 
 
 def district_key(name: str) -> str:
-    return fold(_DIST_WORDS.sub(" ", name)).strip()
+    """Ключ слияния районов ядра, КАТО и OSM: без «район», мягкого знака и окончания прилагательного
+    («Аксуатский» = «Ақсуат», «Теренкольский» = «Тереңкөл», «Аккулинский» = «Аққулы»). Сливаются только
+    районы одной области / одного города, поэтому такой грубый ключ не склеивает разные районы."""
+    k = fold(_DIST_WORDS.sub(" ", name)).strip().replace("ь", "")
+    return re.sub(r"(инский|ынский|ский|цкий|ы)$", "", k) or k
+
+
+def norm_aliases(items: Iterable[Alias] | None, lang: str = "ru") -> list[tuple[str, str]]:
+    """Алиас строкой (ядро, КАТО) или парой [текст, язык] (OSM: язык по ключу тега)."""
+    out: list[tuple[str, str]] = []
+    for a in items or ():
+        if isinstance(a, list | tuple):
+            if a and a[0]:
+                out.append((str(a[0]), str(a[1]) if len(a) > 1 and a[1] else lang))
+        elif a:
+            out.append((str(a), lang))
+    return out
 
 
 @dataclass
@@ -59,8 +89,14 @@ class Builder:
     cities: list[dict[str, Any]] = field(default_factory=list)
     areas: list[dict[str, Any]] = field(default_factory=list)
     streets: list[dict[str, Any]] = field(default_factory=list)
-    street_districts: Counter[tuple[int, int]] = field(default_factory=Counter)
-    houses: list[dict[str, Any]] = field(default_factory=list)
+    # (street_id, district_id) -> [дома, длина м, доля]
+    street_districts: dict[tuple[int, int], list[float]] = field(default_factory=dict)
+    street_areas: dict[tuple[int, int], list[float]] = field(default_factory=dict)
+    # дома кортежами (street_id, number, key, district_id, living_area_id, source, la_method, la_dist_m):
+    # их больше миллиона, dict на каждый не помещается в память сборочной машины
+    houses: list[tuple[Any, ...]] = field(default_factory=list)
+    pois: list[tuple[Any, ...]] = field(default_factory=list)
+    poi_aliases: list[tuple[str, int]] = field(default_factory=list)
     aliases: list[tuple[str, int, str, str, str, str]] = field(default_factory=list)
     _alias_seen: set[tuple[str, int, str]] = field(default_factory=set)
     _by: dict[tuple[str, Any, str], int] = field(default_factory=dict)  # (etype, scope, key) -> id
@@ -86,7 +122,7 @@ class Builder:
         self._by.setdefault((etype, scope, k), eid)
 
     # ---------- сущности ----------
-    def province(self, name: str, kind: str, source: str, aliases: list[str] = (), **kw: Any) -> int:  # type: ignore[assignment]
+    def province(self, name: str, kind: str, source: str, aliases: Iterable[Alias] = (), **kw: Any) -> int:
         pid = self.find("province", None, name)
         if pid is None:
             pid = len(self.provinces) + 1
@@ -107,11 +143,10 @@ class Builder:
             row["osm_id"] = row["osm_id"] or kw.get("osm_id")
             row["kato"] = row["kato"] or kw.get("kato")
         self.alias("province", pid, name, source=source)
-        for a in aliases:
-            self.alias("province", pid, a, source=source)
+        for a, lang in norm_aliases(aliases, kw.get("lang", "ru")):
+            self.alias("province", pid, a, lang=lang, source=source)
             # алиасы регистрируем без снятия «облысы»: «Алматы облысы» не должен совпасть с городом Алматы
-            if a:
-                self._by.setdefault(("province", None, fold(a)), pid)
+            self._by.setdefault(("province", None, fold(a)), pid)
         return pid
 
     def district(
@@ -121,9 +156,9 @@ class Builder:
         province_id: int | None,
         city_id: int | None,
         source: str,
-        aliases: list[str] = (),
+        aliases: Iterable[Alias] = (),
         **kw: Any,
-    ) -> int:  # type: ignore[assignment]
+    ) -> int:
         scope = ("c", city_id) if city_id else ("p", province_id)
         did = self.find("district", scope, name)
         if did is None:
@@ -141,8 +176,12 @@ class Builder:
                 }
             )
             self._register("district", scope, name, did)
-        for a in (name, *aliases):
-            self.alias("district", did, a, source=source)
+        else:
+            row = self.districts[did - 1]
+            row["osm_id"] = row["osm_id"] or kw.get("osm_id")
+            row["kato"] = row["kato"] or kw.get("kato")
+        for a, lang in [(name, "ru"), *norm_aliases(aliases, kw.get("lang", "ru"))]:
+            self.alias("district", did, a, lang=lang, source=source)
             self._register("district", scope, a, did)
         return did
 
@@ -153,10 +192,14 @@ class Builder:
         province_id: int | None,
         source: str,
         district_id: int | None = None,
-        aliases: list[str] = (),
+        aliases: Iterable[Alias] = (),
         **kw: Any,
-    ) -> int:  # type: ignore[assignment]
+    ) -> int:
         cid = self.find("city", province_id, name)
+        if cid is not None and district_id and self.cities[cid - 1]["district_id"] not in (None, district_id):
+            # одноимённое село в другом районе той же области («Акжар»): отдельная сущность, иначе улицы и
+            # район двух сёл сливаются; выбор между ними делают район и улица записи (admin._prefer)
+            cid = self._by.get(("city", (province_id, district_id), fold(name)))
         if cid is None:
             cid = len(self.cities) + 1
             self.cities.append(
@@ -172,16 +215,21 @@ class Builder:
                     "lat": kw.get("lat"),
                     "lon": kw.get("lon"),
                     "population": kw.get("population"),
+                    "district_method": kw.get("district_method") if district_id else None,
                 }
             )
             self._register("city", province_id, name, cid)
+            if district_id:
+                self._by.setdefault(("city", (province_id, district_id), fold(name)), cid)
         else:
             row = self.cities[cid - 1]
             for k in ("osm_id", "kato", "lat", "lon", "population"):
                 row[k] = row[k] or kw.get(k)
-            row["district_id"] = row["district_id"] or district_id
-        for a in (name, *aliases):
-            self.alias("city", cid, a, source=source)
+            if not row["district_id"] and district_id:
+                row["district_id"] = district_id
+                row["district_method"] = kw.get("district_method")
+        for a, lang in [(name, "ru"), *norm_aliases(aliases, kw.get("lang", "ru"))]:
+            self.alias("city", cid, a, lang=lang, source=source)
             self._register("city", province_id, a, cid)
         return cid
 
@@ -192,9 +240,9 @@ class Builder:
         city_id: int | None,
         district_id: int | None,
         source: str,
-        aliases: list[str] = (),
+        aliases: Iterable[Alias] = (),
         **kw: Any,
-    ) -> int:  # type: ignore[assignment]
+    ) -> int:
         aid = self.find("living_area", city_id, name)
         if aid is None:
             aid = len(self.areas) + 1
@@ -213,40 +261,104 @@ class Builder:
         else:
             row = self.areas[aid - 1]
             row["district_id"] = row["district_id"] or district_id
-        for a in (name, *aliases):
-            self.alias("living_area", aid, a, source=source)
+        for a, lang in [(name, "ru"), *norm_aliases(aliases, kw.get("lang", "ru"))]:
+            self.alias("living_area", aid, a, lang=lang, source=source)
             self._register("living_area", city_id, a, aid)
         return aid
 
-    def street(self, name: str, typ: str | None, city_id: int | None, source: str, aliases: list[str] = ()) -> int:  # type: ignore[assignment]
+    def street(
+        self, name: str, typ: str | None, city_id: int | None, source: str, aliases: Iterable[Alias] = (), **kw: Any
+    ) -> int:
         scope = (city_id, typ)
         sid = self.find("street", scope, name)
         if sid is None:
             sid = len(self.streets) + 1
-            self.streets.append({"id": sid, "name": name, "type": typ, "city_id": city_id, "source": source})
+            self.streets.append(
+                {
+                    "id": sid,
+                    "name": name,
+                    "type": typ,
+                    "city_id": city_id,
+                    "source": source,
+                    "length_m": kw.get("length_m"),
+                    "houses": kw.get("houses"),
+                    "type_share": kw.get("type_share"),
+                    "dom_district_id": None,
+                    "dom_district_share": None,
+                    "dom_area_id": None,
+                    "dom_area_share": None,
+                }
+            )
             self._register("street", scope, name, sid)
-        for a in (name, *aliases):
-            self.alias("street", sid, a, source=source)
-            self._register("street", scope, a, sid)
+        else:
+            row = self.streets[sid - 1]
+            for k in ("length_m", "houses"):
+                if kw.get(k) is not None:
+                    row[k] = (row[k] or 0) + kw[k]
+        self.alias("street", sid, name, source=source)
+        for a, lang in norm_aliases(aliases, kw.get("lang", "ru")):
+            self.alias("street", sid, a, lang=lang, source=source)
+            # «Абай даңғылы» и «проспект Абая» одна улица: сливаем по переводам имени, но не по старым и
+            # альтернативным именам: старое имя одной улицы бывает текущим у другой («Бердибай», бывшая «Толе би»)
+            if lang in MERGE_LANGS:
+                self._register("street", scope, a, sid)
         return sid
 
-    def house(self, street_id: int, number: str, district_id: int | None, area_id: int | None, source: str) -> None:
+    def house(
+        self,
+        street_id: int,
+        number: str,
+        district_id: int | None,
+        area_id: int | None,
+        source: str,
+        la_method: str | None = None,
+        la_dist_m: float | None = None,
+    ) -> None:
         key = fold(number).replace(" ", "")
         if (street_id, key) in self._house_seen:
             return
         self._house_seen.add((street_id, key))
         self.houses.append(
-            {
-                "street_id": street_id,
-                "number": number,
-                "key": key,
-                "district_id": district_id,
-                "living_area_id": area_id,
-                "source": source,
-            }
+            (street_id, number, key, district_id, area_id, source, la_method if area_id else None, la_dist_m)
         )
-        if district_id:
-            self.street_districts[(street_id, district_id)] += 1
+
+    def poi(
+        self,
+        name: str,
+        kind: str,
+        brand: str | None,
+        city_id: int,
+        district_id: int | None,
+        area_id: int | None,
+        source: str,
+        aliases: Iterable[Alias] = (),
+    ) -> None:
+        pid = len(self.pois) + 1
+        self.pois.append((pid, name, kind, brand, city_id, district_id, area_id, source))
+        seen: set[str] = set()
+        for a, _ in [(name, "ru"), *norm_aliases(aliases), *([(brand, "ru")] if brand else [])]:
+            if not toponym_ok(a):
+                continue
+            for k in keys(a):
+                if k and k not in seen:
+                    seen.add(k)
+                    self.poi_aliases.append((k, pid))
+
+    def finalize_streets(self) -> None:
+        """Доминирующий район и мкр улицы (лучший кандидат и его доля) для быстрого ответа в рантайме."""
+        best_d: dict[int, tuple[float, int]] = {}
+        for (sid, did), (_, _, share) in self.street_districts.items():
+            if sid not in best_d or share > best_d[sid][0]:
+                best_d[sid] = (share, did)
+        best_a: dict[int, tuple[float, int]] = {}
+        for (sid, aid), (_, _, share) in self.street_areas.items():
+            if sid not in best_a or share > best_a[sid][0]:
+                best_a[sid] = (share, aid)
+        for s in self.streets:
+            if s["id"] in best_d:
+                s["dom_district_share"], s["dom_district_id"] = best_d[s["id"]]
+            if s["id"] in best_a:
+                s["dom_area_share"], s["dom_area_id"] = best_a[s["id"]]
 
     # ---------- вывод ----------
     def write(self, path: Path, meta: dict[str, Any]) -> None:
@@ -272,9 +384,16 @@ class Builder:
         ins("living_areas", self.areas)
         ins("streets", self.streets)
         con.executemany(
-            "INSERT INTO street_districts VALUES (?,?,?)", [(s, d, w) for (s, d), w in self.street_districts.items()]
+            "INSERT INTO street_districts VALUES (?,?,?,?,?,?)",
+            [(s, d, max(1, round(v[2] * 1000)), int(v[0]), v[1], v[2]) for (s, d), v in self.street_districts.items()],
         )
-        ins("houses", self.houses)
+        con.executemany(
+            "INSERT INTO street_areas VALUES (?,?,?,?,?)",
+            [(s, a, int(v[0]), v[1], v[2]) for (s, a), v in self.street_areas.items()],
+        )
+        con.executemany("INSERT INTO houses VALUES (?,?,?,?,?,?,?,?)", self.houses)
+        con.executemany("INSERT INTO pois VALUES (?,?,?,?,?,?,?,?)", self.pois)
+        con.executemany("INSERT INTO poi_aliases VALUES (?,?)", self.poi_aliases)
         con.executemany("INSERT INTO aliases VALUES (?,?,?,?,?,?)", self.aliases)
         con.executemany(
             "INSERT INTO meta VALUES (?,?)", [(k, json.dumps(v, ensure_ascii=False)) for k, v in meta.items()]
@@ -285,6 +404,7 @@ class Builder:
             CREATE INDEX ix_alias_e ON aliases(etype, eid);
             CREATE INDEX ix_house ON houses(street_id, key);
             CREATE INDEX ix_street_city ON streets(city_id);
+            CREATE INDEX ix_poi_alias ON poi_aliases(key);
             """
         )
         con.commit()
@@ -301,13 +421,14 @@ def load_seed(b: Builder, seed_dir: Path) -> None:
     for p in data["provinces"]:
         kk = p.get("kk", "")
         kk_short = kk.replace(" облысы", "")  # «Ақтөбе» рядом с маркером «облысы»
-        pid = b.province(p["name"], "oblast", "seed", [p.get("short", ""), kk, *p.get("aliases", [])])
+        pid = b.province(p["name"], "oblast", "seed", [p.get("short", ""), [kk, "kk"], *p.get("aliases", [])])
         # только алиас для поиска рядом с маркером; в слияние не регистрируем («Алматы» != Алматинская обл.)
         b.alias("province", pid, kk_short, lang="kk")
         centers[pid] = p["center"]
     for rc in data["republican_cities"]:
-        pid = b.province(rc["name"], "city", "seed", [rc.get("kk", ""), *rc.get("aliases", [])])
-        cid = b.city(rc["name"], "republican", pid, "seed", aliases=[rc.get("kk", ""), *rc.get("aliases", [])])
+        al = [[rc.get("kk", ""), "kk"], *rc.get("aliases", [])]
+        pid = b.province(rc["name"], "city", "seed", al)
+        cid = b.city(rc["name"], "republican", pid, "seed", aliases=al)
         b.provinces[pid - 1]["center_city_id"] = cid
         for d in rc.get("districts", []):
             b.district(d["name"], "city", pid, cid, "seed", d.get("aliases", []))
@@ -320,7 +441,7 @@ def load_seed(b: Builder, seed_dir: Path) -> None:
         pid = b.find("province", None, c["province"])
         assert pid, c
         did = b.find("district", ("p", pid), c["district"]) if c.get("district") else None
-        b.city(c["name"], c.get("kind", "city"), pid, "seed", did, c.get("aliases", []))
+        b.city(c["name"], c.get("kind", "city"), pid, "seed", did, c.get("aliases", []), district_method="seed")
     for pid, center in centers.items():
         b.provinces[pid - 1]["center_city_id"] = b.find("city", pid, center)
     for city, dists in (data.get("city_districts") or {}).items():
@@ -337,7 +458,17 @@ def load_seed(b: Builder, seed_dir: Path) -> None:
                 b.area(a, "микрорайон", cid, did, "seed", [a.replace("-", " ")])
 
 
-def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
+def _weights(raw: Any) -> Iterator[tuple[str, float, float]]:
+    """(имя, дома, длина м) улицы по районам/мкр: формат {имя: {houses, length_m, share}} или старый {имя: вес}.
+    Доли пересчитываются после слияния (_recompute_shares)."""
+    for name, v in (raw or {}).items():
+        if isinstance(v, dict):
+            yield name, float(v.get("houses") or 0), float(v.get("length_m") or 0)
+        else:
+            yield name, float(v), 0.0
+
+
+def load_external(b: Builder, data: dict[str, Any], source: str, lang: str = "ru") -> None:
     """Слияние выгрузки OSM/КАТО. Сущности ссылаются друг на друга по названиям."""
 
     def prov_id(name: str | None) -> int | None:
@@ -345,9 +476,16 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
 
     for p in data.get("provinces", []):
         b.province(
-            p["name"], p.get("kind", "oblast"), source, p.get("aliases", []), osm_id=p.get("osm_id"), kato=p.get("kato")
+            p["name"],
+            p.get("kind", "oblast"),
+            source,
+            p.get("aliases", []),
+            osm_id=p.get("osm_id"),
+            kato=p.get("kato"),
+            lang=lang,
         )
     city_scope: dict[tuple[str | None, str], int] = {}
+    by_osm: dict[str, int] = {}  # пункт OSM -> id: одноимённые сёла одной области различаются по osm_id
     # сначала города (нужны для районов городов), районы областей
     for d in data.get("districts", []):
         if d.get("city"):
@@ -355,7 +493,15 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
         pid = prov_id(d.get("province"))
         if pid:
             b.district(
-                d["name"], "oblast", pid, None, source, d.get("aliases", []), osm_id=d.get("osm_id"), kato=d.get("kato")
+                d["name"],
+                "oblast",
+                pid,
+                None,
+                source,
+                d.get("aliases", []),
+                osm_id=d.get("osm_id"),
+                kato=d.get("kato"),
+                lang=lang,
             )
     for c in data.get("cities", []):
         pid = prov_id(c.get("province"))
@@ -374,10 +520,16 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
             lat=c.get("lat"),
             lon=c.get("lon"),
             population=c.get("population"),
+            district_method=c.get("district_method") or source,
+            lang=lang,
         )
-        city_scope[(c.get("province"), c["name"])] = cid
+        city_scope.setdefault((c.get("province"), c["name"]), cid)
+        if c.get("osm_id"):
+            by_osm[c["osm_id"]] = cid
 
-    def city_id(prov: str | None, name: str | None) -> int | None:
+    def city_id(prov: str | None, name: str | None, osm: str | None = None) -> int | None:
+        if osm and osm in by_osm:
+            return by_osm[osm]
         if not name:
             return None
         if (prov, name) in city_scope:
@@ -387,6 +539,8 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
         if cid is None and pid is None:
             # республиканский город может прийти без области
             cid = next((c["id"] for c in b.cities if fold(c["name"]) == fold(name) and c["kind"] == "republican"), None)
+        if cid is not None:
+            city_scope[(prov, name)] = cid
         return cid
 
     for d in data.get("districts", []):
@@ -402,6 +556,8 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
                 source,
                 d.get("aliases", []),
                 osm_id=d.get("osm_id"),
+                kato=d.get("kato"),
+                lang=lang,
             )
 
     def dist_id(cid: int | None, prov: str | None, name: str | None) -> int | None:
@@ -415,7 +571,7 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
         return b.find("district", ("p", pid), name) if pid else None
 
     for a in data.get("living_areas", []):
-        cid = city_id(a.get("province"), a.get("city"))
+        cid = city_id(a.get("province"), a.get("city"), a.get("city_osm"))
         if not cid or not toponym_ok(a["name"]):
             continue
         b.area(
@@ -426,41 +582,150 @@ def load_external(b: Builder, data: dict[str, Any], source: str) -> None:
             source,
             a.get("aliases", []),
             osm_id=a.get("osm_id"),
+            lang=lang,
         )
 
-    street_ids: dict[tuple[int, str], int] = {}
+    street_ids: dict[tuple[int, str | None, str], int] = {}
+    any_type: dict[tuple[int, str], int] = {}
     for s in data.get("streets", []):
-        cid = city_id(s.get("province"), s.get("city"))
+        cid = city_id(s.get("province"), s.get("city"), s.get("city_osm"))
         if not cid or not toponym_ok(s["name"]):
             continue
-        sid = b.street(s["name"], s.get("type"), cid, source, s.get("aliases", []))
-        street_ids[(cid, fold(s["name"]))] = sid
-        for dname, w in (s.get("districts") or {}).items():
+        sid = b.street(
+            s["name"],
+            s.get("type"),
+            cid,
+            source,
+            s.get("aliases", []),
+            length_m=s.get("length_m"),
+            houses=s.get("houses"),
+            type_share=s.get("type_share"),
+            lang=lang,
+        )
+        street_ids[(cid, s.get("type"), fold(s["name"]))] = sid
+        any_type.setdefault((cid, fold(s["name"])), sid)
+        for dname, h, ln in _weights(s.get("districts")):
             did = dist_id(cid, s.get("province"), dname)
             if did:
-                b.street_districts[(sid, did)] += int(w)
+                cur = b.street_districts.setdefault((sid, did), [0.0, 0.0, 0.0])
+                cur[0] += h
+                cur[1] += ln
+        for aname, h, ln in _weights(s.get("areas")):
+            aid = b.find("living_area", cid, aname)
+            if aid:
+                cur = b.street_areas.setdefault((sid, aid), [0.0, 0.0, 0.0])
+                cur[0] += h
+                cur[1] += ln
+    _recompute_shares(b)
     for h in data.get("houses", []):
-        cid = city_id(h.get("province"), h.get("city"))
+        cid = city_id(h.get("province"), h.get("city"), h.get("city_osm"))
         if not cid or not toponym_ok(h["street"]) or len(h["number"]) > 20:
             continue
-        sid = street_ids.get((cid, fold(h["street"])))
+        key = (cid, h["type"], fold(h["street"])) if "type" in h else None
+        sid = street_ids.get(key) if key else any_type.get((cid, fold(h["street"])))
         if not sid:
             continue
         aid = b.find("living_area", cid, h["living_area"]) if h.get("living_area") else None
-        b.house(sid, h["number"], dist_id(cid, h.get("province"), h.get("district")), aid, source)
+        b.house(
+            sid,
+            h["number"],
+            dist_id(cid, h.get("province"), h.get("district")),
+            aid,
+            source,
+            h.get("la_method"),
+            h.get("la_dist_m"),
+        )
+    for p in data.get("pois", []):
+        cid = city_id(p.get("province"), p.get("city"), p.get("city_osm"))
+        if not cid or not toponym_ok(p["name"]):
+            continue
+        aid = b.find("living_area", cid, p["living_area"]) if p.get("living_area") else None
+        b.poi(
+            p["name"],
+            p["kind"],
+            p.get("brand"),
+            cid,
+            dist_id(cid, p.get("province"), p.get("district")),
+            aid,
+            source,
+            p.get("aliases", []),
+        )
 
 
-def coverage(b: Builder) -> dict[str, Any]:
+def _recompute_shares(b: Builder) -> None:
+    """Доли заново по суммам: в одну улицу справочника сливаются несколько записей OSM («Абая» + «Абай»),
+    и доля каждой по отдельности уже не верна. Правило то же, что в assign_districts: по домам, если их
+    у улицы >= 3, иначе по длине сегментов (старый формат весов: вес лежит в домах)."""
+    for table in (b.street_districts, b.street_areas):
+        houses: Counter[int] = Counter()
+        length: dict[int, float] = defaultdict(float)
+        for (sid, _), v in table.items():
+            houses[sid] += int(v[0])
+            length[sid] += v[1]
+        for (sid, _), v in table.items():
+            if houses[sid] >= 3 or (houses[sid] and not length[sid]):
+                v[2] = round(v[0] / houses[sid], 3)
+            elif length[sid]:
+                v[2] = round(v[1] / length[sid], 3)
+
+
+def read_external(path: Path) -> dict[str, Any]:
+    """Файл JSON (КАТО, старая выгрузка OSM) или каталог assign_districts.py (meta.json + *.jsonl потоком)."""
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+    data: dict[str, Any] = json.loads((path / "meta.json").read_text(encoding="utf-8"))
+
+    def stream(name: str) -> Iterator[dict[str, Any]]:
+        f = path / name
+        if f.exists():
+            with f.open(encoding="utf-8") as fh:
+                for line in fh:
+                    if line.strip():
+                        yield json.loads(line)
+
+    data["streets"] = list(stream("streets.jsonl"))  # улицы нужны до домов: по ним ищется street_id
+    data["houses"] = stream("houses.jsonl")
+    data["pois"] = stream("pois.jsonl")
+    return data
+
+
+def coverage(b: Builder, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     streets_per_city: Counter[int] = Counter(s["city_id"] for s in b.streets)
-    houses_per_city: Counter[int] = Counter()
     sid2city = {s["id"]: s["city_id"] for s in b.streets}
+    houses_per_city: Counter[int] = Counter()
+    with_district: Counter[int] = Counter()
+    with_area: Counter[int] = Counter()
+    by_point: Counter[int] = Counter()
     for h in b.houses:
-        houses_per_city[sid2city[h["street_id"]]] += 1
-    with_district = defaultdict(int)
-    for h in b.houses:
-        if h["district_id"]:
-            with_district[sid2city[h["street_id"]]] += 1
+        c = sid2city[h[0]]
+        houses_per_city[c] += 1
+        with_district[c] += h[3] is not None
+        with_area[c] += h[4] is not None
+        by_point[c] += h[6] == "point"
+    districts_per_city: Counter[int] = Counter(d["city_id"] for d in b.districts if d["city_id"])
+    areas_per_city: Counter[int] = Counter(a["city_id"] for a in b.areas)
+    pois_per_city: Counter[int] = Counter(p[4] for p in b.pois)
+    streets_with_d: Counter[int] = Counter(s["city_id"] for s in b.streets if s["dom_district_id"])
+
+    def row(c: dict[str, Any]) -> dict[str, Any]:
+        cid = c["id"]
+        return {
+            "city": c["name"],
+            "kind": c["kind"],
+            "districts": districts_per_city[cid],
+            "living_areas": areas_per_city[cid],
+            "streets": streets_per_city[cid],
+            "streets_with_district": streets_with_d[cid],
+            "houses": houses_per_city[cid],
+            "houses_with_district": with_district[cid],
+            "houses_with_living_area": with_area[cid],
+            "houses_living_area_by_point": by_point[cid],
+            "pois": pois_per_city[cid],
+        }
+
     top = sorted(b.cities, key=lambda c: (-(streets_per_city[c["id"]]), c["name"]))[:40]
+    centers = [b.cities[p["center_city_id"] - 1] for p in b.provinces if p.get("center_city_id")]
+    settlements = [c for c in b.cities if c["kind"] != "republican"]
     return {
         "counts": {
             "provinces": len(b.provinces),
@@ -469,6 +734,7 @@ def coverage(b: Builder) -> dict[str, Any]:
             "living_areas": len(b.areas),
             "streets": len(b.streets),
             "houses": len(b.houses),
+            "pois": len(b.pois),
             "aliases": len(b.aliases),
         },
         "by_source": {
@@ -478,26 +744,36 @@ def coverage(b: Builder) -> dict[str, Any]:
                 ("districts", b.districts),
                 ("living_areas", b.areas),
                 ("streets", b.streets),
-                ("houses", b.houses),
             )
+        }
+        | {"houses": dict(Counter(h[5] for h in b.houses)), "pois": dict(Counter(p[7] for p in b.pois))},
+        "aliases_by_lang": dict(Counter(a[4] for a in b.aliases)),
+        "settlements_with_district": {
+            "total": len(settlements),
+            "with_district": sum(1 for c in settlements if c["district_id"]),
+            "by_method": dict(Counter(c["district_method"] for c in settlements if c["district_id"])),
         },
-        "top_cities": [
-            {
-                "city": c["name"],
-                "kind": c["kind"],
-                "streets": streets_per_city[c["id"]],
-                "houses": houses_per_city[c["id"]],
-                "houses_with_district": with_district[c["id"]],
-            }
-            for c in top
-        ],
+        "houses": {
+            "with_district": sum(1 for h in b.houses if h[3] is not None),
+            "with_living_area": sum(1 for h in b.houses if h[4] is not None),
+            "living_area_by_point": sum(1 for h in b.houses if h[6] == "point"),
+        },
+        "streets": {
+            "with_district": sum(1 for s in b.streets if s["dom_district_id"]),
+            "district_ambiguous": sum(1 for s in b.streets if s["dom_district_id"] and s["dom_district_share"] < 0.8),
+            "with_living_area": sum(1 for s in b.streets if s["dom_area_id"]),
+            "typed": sum(1 for s in b.streets if s["type"]),
+        },
+        "centers": [row(c) for c in centers],
+        "top_cities": [row(c) for c in top],
+        **(extra or {}),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=Path, default=HERE / "seed")
-    ap.add_argument("--osm", type=Path, help="выгрузка OSM после assign_districts.py")
+    ap.add_argument("--osm", type=Path, help="выгрузка OSM после assign_districts.py (каталог или старый json)")
     ap.add_argument("--kato", type=Path, help="выгрузка КАТО после kato.py")
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args(argv)
@@ -506,13 +782,20 @@ def main(argv: list[str] | None = None) -> int:
     b = Builder()
     load_seed(b, args.seed)
     sources = ["seed"]
-    if args.kato and args.kato.exists():
-        load_external(b, json.loads(args.kato.read_text(encoding="utf-8")), "kato")
-        sources.append("kato")
+    extra: dict[str, Any] = {}
+    # порядок = приоритет канонического написания: ядро -> OSM (русские name:ru, «Весёлая Роща») -> КАТО
+    # (в КАТО часть русских названий записана казахскими буквами: «Аққулы»). КАТО дополняет коды и районы
+    # пунктов, которых нет у OSM, и добавляет пункты без OSM (source=kato, при выборе одноимённых они последние)
     if args.osm and args.osm.exists():
-        load_external(b, json.loads(args.osm.read_text(encoding="utf-8")), "osm")
+        osm = read_external(args.osm)
+        load_external(b, osm, "osm")
         sources.append("osm")
-    cov = coverage(b)
+        extra = {k: osm[k] for k in ("city_units", "levels", "stats") if k in osm}
+    if args.kato and args.kato.exists():
+        load_external(b, read_external(args.kato), "kato", lang="kk")
+        sources.append("kato")
+    b.finalize_streets()
+    cov = coverage(b, {"osm": extra} if extra else None)
     meta = {
         "built_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "sources": sources,

@@ -1,7 +1,8 @@
 """Справочник: read-only SQLite (reference/reference.sqlite), поднятый в память при старте.
 
 Малые таблицы (области, районы, города, микрорайоны, улицы, алиасы) живут в памяти с индексами
-по fold-ключу. Дома запрашиваются из SQLite по (street_id, номер) с индексом.
+по fold-ключу. Дома, доли улиц по районам/мкр, объекты-ориентиры запрашиваются из SQLite лениво по индексам.
+Геометрии в рантайме нет: все привязки посчитаны при сборке (scripts/build_reference/assign_districts.py).
 Индексы строятся только по топонимам. Целых адресных строк в справочнике нет (ТЗ, раздел 7).
 """
 
@@ -42,6 +43,40 @@ class Entity:
         return f"reference:{self.source}"
 
 
+def ref_source(origin: str, via: str | None = None) -> str:
+    """Источник восстановленного поля: reference:osm:<house|street|polygon|point|poi>, reference:seed,
+    reference:kato. Способ (via) пишется только у OSM: у ядра и КАТО привязка табличная."""
+    return f"reference:{origin}:{via}" if origin == "osm" and via else f"reference:{origin}"
+
+
+@dataclass(frozen=True)
+class House:
+    district_id: int | None
+    living_area_id: int | None
+    source: str
+    la_method: str | None = None  # polygon | point (мкр по ближайшей place-точке)
+
+
+@dataclass(frozen=True)
+class StreetInfo:
+    type_share: float | None
+    dom_district_id: int | None
+    dom_district_share: float | None
+    dom_area_id: int | None
+    dom_area_share: float | None
+    houses: int | None
+
+
+@dataclass(frozen=True)
+class Poi:
+    id: int
+    name: str
+    kind: str
+    brand: str | None
+    district_id: int | None
+    living_area_id: int | None
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -79,13 +114,22 @@ class Store:
         # улицы по городу: city_id -> key -> [street_id]
         self.streets_by_city: dict[int | None, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
         self.street_keys_global: dict[str, list[int]] = defaultdict(list)
-        for eid, key in con.execute("SELECT eid, key FROM aliases WHERE etype = 'street'"):
+        # старые названия улиц (old_name OSM) отдельно: старое имя одной улицы бывает текущим у другой
+        # («Бердибай», бывшая «Толе би»), поэтому по нему ищем, только если текущих совпадений нет
+        self.old_streets_by_city: dict[int | None, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+        self.old_street_keys_global: dict[str, list[int]] = defaultdict(list)
+        for eid, key, lang in con.execute("SELECT eid, key, lang FROM aliases WHERE etype = 'street'"):
             st = self.entities[("street", eid)]
-            self.streets_by_city[st.city_id][key].append(eid)
-            self.street_keys_global[key].append(eid)
-        self.street_districts: dict[int, list[tuple[int, int]]] = defaultdict(list)
-        for sid, did, w in con.execute("SELECT street_id, district_id, weight FROM street_districts"):
-            self.street_districts[sid].append((did, w))
+            if lang == "old":
+                self.old_streets_by_city[st.city_id][key].append(eid)
+                self.old_street_keys_global[key].append(eid)
+            else:
+                self.streets_by_city[st.city_id][key].append(eid)
+                self.street_keys_global[key].append(eid)
+        # доли улиц по районам/мкр, дома, объекты и метод привязки пункта запрашиваются лениво по индексам:
+        # в память при старте не грузятся. Старая схема (до street_areas/pois) читается тоже.
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        self._v2 = "street_areas" in tables
         # ключи по типам для нечёткого поиска
         self._keys_by_type: dict[str, list[str]] = defaultdict(list)
         for key, items in self.alias.items():
@@ -159,11 +203,16 @@ class Store:
         return self.get("city", self.province_center.get(prov.id)) if prov.kind == "city" else None
 
     def streets(self, name: str, city_id: int | None) -> list[Entity]:
-        ids: list[int] = []
-        for k in keys(name):
-            src = self.streets_by_city.get(city_id, {}) if city_id is not None else self.street_keys_global
-            ids.extend(i for i in src.get(k, ()) if i not in ids)
-        return [self.entities[("street", i)] for i in ids]
+        """Улицы по текущему названию (рус/каз/лат); нет таких: по старому названию."""
+        for by_city, glob in (
+            (self.streets_by_city, self.street_keys_global),
+            (self.old_streets_by_city, self.old_street_keys_global),
+        ):
+            src = by_city.get(city_id, {}) if city_id is not None else glob
+            ids = list(dict.fromkeys(i for k in keys(name) for i in src.get(k, ())))  # без O(n²) у «Абая»
+            if ids:
+                return [self.entities[("street", i)] for i in ids]
+        return []
 
     def street_fuzzy(self, name: str, city_id: int, cutoff: float = 90.0) -> tuple[list[Entity], float] | None:
         cand = self.streets_by_city.get(city_id)
@@ -177,22 +226,75 @@ class Store:
             return None
         return [self.entities[("street", i)] for i in cand[m[0]]], float(m[1])
 
-    def house(self, street_id: int, number: str) -> tuple[int | None, int | None] | None:
-        """(district_id, living_area_id) дома или None, если дома нет в справочнике. «5 корп 2», «11к2», «30/1 стр. 2»:
-        если с корпусом не нашёлся, ищем номер без корпуса (участок и район у них общие)."""
+    def house(self, street_id: int, number: str) -> House | None:
+        """Дом из справочника или None. «5 корп 2», «11к2», «30/1 стр. 2»: если с корпусом не нашёлся,
+        ищем номер без корпуса (участок и район у них общие)."""
         keys_ = [fold(number).replace(" ", "")]
         base = _HOUSE_BASE.match(number)
         if base and fold(base.group(1)).replace(" ", "") != keys_[0]:
             keys_.append(fold(base.group(1)).replace(" ", ""))
         con = self._con()
+        cols = "district_id, living_area_id, source" + (", la_method" if self._v2 else "")
         for key in keys_:
             row = con.execute(
-                "SELECT district_id, living_area_id FROM houses WHERE street_id = ? AND key = ? LIMIT 1",
-                (street_id, key),
+                f"SELECT {cols} FROM houses WHERE street_id = ? AND key = ? LIMIT 1", (street_id, key)
             ).fetchone()
             if row:
-                return (row[0], row[1])
+                return House(row[0], row[1], row[2], row[3] if self._v2 else None)
         return None
+
+    def street_info(self, street_id: int) -> StreetInfo | None:
+        """Доля типа среди одноимённых улиц города и доминирующие район / мкр (посчитаны при сборке)."""
+        if not self._v2:
+            return None
+        row = (
+            self._con()
+            .execute(
+                "SELECT type_share, dom_district_id, dom_district_share, dom_area_id, dom_area_share, houses "
+                "FROM streets WHERE id = ?",
+                (street_id,),
+            )
+            .fetchone()
+        )
+        return StreetInfo(*row) if row else None
+
+    def district_shares(self, street_id: int) -> list[tuple[int, float, int]]:
+        """[(district_id, доля, домов)] улицы: доли по домам (если их >= 3) или по длине сегментов."""
+        con = self._con()
+        if self._v2:
+            q = "SELECT district_id, share, houses FROM street_districts WHERE street_id = ?"
+            return [(d, float(s or 0.0), int(h or 0)) for d, s, h in con.execute(q, (street_id,))]
+        rows = list(con.execute("SELECT district_id, weight FROM street_districts WHERE street_id = ?", (street_id,)))
+        total = sum(w for _, w in rows) or 1
+        return [(d, w / total, int(w)) for d, w in rows]
+
+    def area_shares(self, street_id: int) -> list[tuple[int, float, int]]:
+        if not self._v2:
+            return []
+        q = "SELECT area_id, share, houses FROM street_areas WHERE street_id = ?"
+        return [(a, float(s or 0.0), int(h or 0)) for a, s, h in self._con().execute(q, (street_id,))]
+
+    def city_district_method(self, city_id: int) -> str | None:
+        """Как найден район области у пункта: polygon | near (OSM), seed, kato."""
+        if not self._v2:
+            return None
+        row = self._con().execute("SELECT district_method FROM cities WHERE id = ?", (city_id,)).fetchone()
+        return row[0] if row else None
+
+    def pois(self, text: str, city_id: int) -> list[Poi]:
+        """Объекты-ориентиры города по названию или бренду (fold/транслит), без нечёткого поиска."""
+        if not self._v2:
+            return []
+        out: dict[int, Poi] = {}
+        con = self._con()
+        for k in keys(text):
+            for row in con.execute(
+                "SELECT p.id, p.name, p.kind, p.brand, p.district_id, p.living_area_id FROM poi_aliases a "
+                "JOIN pois p ON p.id = a.poi_id WHERE a.key = ? AND p.city_id = ? LIMIT 200",
+                (k, city_id),
+            ):
+                out.setdefault(row[0], Poi(*row))
+        return list(out.values())
 
 
 _store: Store | None = None

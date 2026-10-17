@@ -24,9 +24,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from jana_address import config  # noqa: E402
 from scripts.synth.builder import Builder, Ref  # noqa: E402
 
-DB = ROOT / "reference" / "reference.sqlite"
+DB = config.SYNTH_DB  # снапшот: пересборка справочника не двигает наборы и split unseen
 RESERVED_SEEDS = {1, 2, 11, 99, 4242, 4343}  # dev и отложенные (4242: dev_chaos_v2_holdout, 4343: dev_hard_holdout)
 # доли режимов (chaos, strong)
 MIX = [((True, True), 0.5), ((False, True), 0.3), ((True, False), 0.2)]

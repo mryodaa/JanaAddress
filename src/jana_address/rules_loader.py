@@ -111,6 +111,8 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
     mk = _read(d / "markers.yaml")
     ad = _read(d / "admin.yaml")
     lm = _read(d / "landmarks.yaml")
+    # сетевые бренды из объектов OSM (scripts/build_reference/gen_landmarks.py) дополняют ручной список
+    lm_osm = _read(d / "landmarks_osm.yaml") if (d / "landmarks_osm.yaml").exists() else {}
     conf = _read(d / "confidence.yaml")
     arb = _read(d / "arbiter.yaml") if (d / "arbiter.yaml").exists() else {}
 
@@ -145,7 +147,7 @@ def load_rules(rules_dir: Path | None = None) -> Rules:
         rural_okrug=_flag_index(ad.get("rural_okrug", [])),
         lm_prepositions=_flag_index(lm.get("prepositions", [])),
         lm_objects=_flag_index(lm.get("objects", [])),
-        lm_brands=_flag_index(lm.get("brands", [])),
+        lm_brands=_flag_index([*lm.get("brands", []), *lm_osm.get("brands", [])]),
         lm_numbered={fold(str(x)) for x in lm.get("numbered_objects", [])},
         confidence=conf,
         arbiter=arb,

@@ -1,0 +1,46 @@
+# Сгенерировано scripts/build_reference/gen_landmarks.py из объектов OSM (reference.sqlite), не править.
+# Сетевые бренды: >= 3 городов или >= 10 объектов, без совпадений с
+# топонимами и маркерами. Ручной список в landmarks.yaml. © участники OpenStreetMap, ODbL 1.0.
+brands:
+- Adidas
+- Alatau City Bank
+- Bank CenterCredit
+- Bank RBK
+- Bereke Bank
+- DeFacto
+- Eurasian Bank
+- ForteBank
+- Freedom Bank
+- Gloria Jeans
+- Halyk Bank
+- Helios
+- Home Credit Bank
+- Independent
+- Kari
+- Kaspi.kz
+- Koton
+- Kulikov
+- LC Waikiki
+- Mango
+- Mark Formelle
+- Mixit
+- NomadOil
+- Nurbank
+- Oriflame
+- Qazaq Oil
+- Royal Petrol
+- Sinooil
+- АО "Казкоммерцбанк"
+- Аурика
+- Газпромнефть
+- Газпромнефть АЗС
+- Гелиос
+- Детский мир
+- Иволга
+- КазМунайГаз
+- ҚазМұнайГаз
+- Народный банк
+- Светофор
+- СДЭК
+- Спортмастер
+- Юничел

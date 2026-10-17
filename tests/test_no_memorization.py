@@ -143,7 +143,7 @@ def test_tagger_generalizes_to_unseen_toponyms() -> None:
 
     tagger = load(config.TAGGER_MODEL, config.TAGGER_META)
     assert tagger is not None
-    b = Builder(Ref(config.REFERENCE_DB, "unseen"), random.Random(777), chaos=True)
+    b = Builder(Ref(config.SYNTH_DB, "unseen"), random.Random(777), chaos=True)
     recs = [b.record(i) for i in range(400)]
     preds = tagger.predict([r["raw_address"] for r in recs])
     gold = [[(s, min(e, tagger.max_len), lab) for s, e, lab in r["_spans"] if s < tagger.max_len] for r in recs]

@@ -5,6 +5,7 @@ export const en: TranslationDictionary = {
   navBatch: "Batch",
   navCheck: "Check string",
   serviceReady: "service ready · offline",
+  osmAttribution: "Reference data: © OpenStreetMap contributors, ODbL 1.0",
   serviceLoading: "loading…",
   serviceTitle: "reference loaded",
   serviceUnavailable: "service unavailable",

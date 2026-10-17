@@ -46,7 +46,8 @@ def test_startup_with_model() -> None:
         "print(json.dumps({'sec': time.perf_counter() - t0, 'tagger': engine.info()['tagger']}))"
     )
     env = {**os.environ, "JANA_TAGGER": "on", "PYTHONPATH": str(config.PACKAGE_DIR.parent)}
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=180, check=True)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=180)
+    assert out.returncode == 0, out.stderr[-2000:]
     info = json.loads(out.stdout.strip().splitlines()[-1])
     print(f"\nхолодный старт со справочником и моделью: {info['sec']:.1f} с, прогрев {info['tagger']['warmup_ms']} мс")
     assert info["tagger"]["loaded"] and info["tagger"]["mode"] == "on"

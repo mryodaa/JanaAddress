@@ -14,6 +14,9 @@ def _path(env: str, default: Path) -> Path:
 
 
 REFERENCE_DB = _path("JANA_REFERENCE_DB", REPO_DIR / "reference" / "reference.sqlite")
+# снапшот справочника, по которому собраны синтетические dev/отложенные наборы и данные теггера: id улиц и
+# городов в нём задают split unseen и воспроизводимость наборов, поэтому пересборка основного файла их не двигает
+SYNTH_DB = _path("JANA_SYNTH_DB", REPO_DIR / "reference" / "reference.synth_v1.sqlite")
 EDITS_DB = _path("JANA_EDITS_DB", REPO_DIR / "var" / "edits.sqlite")
 RULES_DIR = _path("JANA_RULES_DIR", PACKAGE_DIR / "rules")
 STATIC_DIR = _path("JANA_STATIC_DIR", PACKAGE_DIR / "static")

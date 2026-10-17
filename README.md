@@ -125,7 +125,18 @@ Hybrid включён по умолчанию (`JANA_TAGGER=on`): на реша�
 
 ## Справочник
 
-`reference/reference.sqlite`: области, районы областей и городов, населённые пункты, микрорайоны/ЖК, улицы (с каз. и старыми названиями), дома с районом по геометрии. Источники, лицензии (OSM ODbL), пересборка и покрытие описаны в [docs/REFERENCE.md](docs/REFERENCE.md).
+`reference/reference.sqlite` (75 МБ): ядро + OpenStreetMap + КАТО. 20 областей и городов респ. значения, 197 районов, 14 280 населённых пунктов (97% с районом области), 5 527 мкр/ЖК, 55 тыс. улиц, 1.18 млн домов (309 тыс. с районом, 427 тыс. с мкр), 34 тыс. объектов-ориентиров, алиасы рус/каз/лат/старые. Вся геометрия считается при сборке (`scripts/build_reference/`, pyosmium + shapely), в файле готовые привязки: дом → район и мкр, улица → доли по районам и мкр, доминирующий тип улицы, пункт → район области. Рантайм только ищет по индексам SQLite, без геометрии.
+
+Восстановление на отложенных синтетических наборах (тот же код, старый справочник → новый): district 70–73% → 74–78% записей, living_area 20–26% → 31–37%, street_type +0.4–0.6 п.п.; у каждого восстановленного поля источник в explain и UI (`reference:osm:house | street | polygon | point | poi`, `reference:kato`, `reference:seed`). Покрытие по областным центрам, пороги и пересборка: [docs/REFERENCE.md](docs/REFERENCE.md), разведка дампа OSM: [docs/OSM_SURVEY.md](docs/OSM_SURVEY.md).
+
+```bash
+python scripts/coverage_report.py data/dev_chaos_holdout.json            # доля восстановленных полей по источникам
+python scripts/coverage_report.py data/dev_chaos_holdout.json --db reference/reference.synth_v1.sqlite   # «до»
+```
+
+### Лицензии данных
+
+Справочник содержит данные © участники OpenStreetMap, лицензия [ODbL 1.0](https://opendatacommons.org/licenses/odbl/) (атрибуция в футере UI), и классификатор КАТО Бюро национальной статистики РК (открытые данные). Строка для тезисов презентации: «Справочник: © участники OpenStreetMap (ODbL 1.0), КАТО БНС АСПиР РК».
 
 ## Оценка
 
@@ -169,7 +180,7 @@ python -m jana_address.cli data/dev_synth.json out.json && python scripts/eval.p
 
 Дальше:
 1. Получить `train.json`/`sample_output.json`, сверить формат контейнера и ожидания (`docs/QUESTIONS.md`), прогнать `eval.py` на выданном эталоне, итерировать правила.
-2. Подключить КАТО (нужен файл классификатора с stat.gov.kz) и, по возможности, адресный регистр. OSM уже собран: 6900 населённых пунктов, 58 тыс. улиц, 1.18 млн домов.
+2. Справочник собран из OSM и КАТО (docs/REFERENCE.md). Дальше: адресный регистр (API с ключом), районы Караганды (полигонов в OSM нет).
 3. Перекалибровать confidence и веса арбитра на `data/dev_gold.json` (`python -m training.fit_arbiter --sets dev_gold --write`), дообучить теггер с серебряной разметкой из train.json (`training/silver.py`).
 
-Офлайн-сборка проверена: `docker build --no-cache --network=none` проходит, контейнер healthy через ~6 с, 1000 записей через API за 0.4 с.
+Офлайн-сборка проверена 2026-10-17 со справочником OSM + КАТО: `docker build --no-cache --network=none` проходит за 20 с, образ 617 МБ, контейнер healthy за 6 с, 1000 записей через API за 1.8 с.

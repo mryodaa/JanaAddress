@@ -118,7 +118,8 @@ class Arbiter:
             found = same or found
         # города раньше сёл: «Акколь» без уточнений скорее город
         rank = {"republican": 0, "city": 1, "town": 2, "village": 3}
-        return sorted(found, key=lambda e: rank.get(e.kind or "", 4))
+        src = {"seed": 0, "osm": 1, "kato": 2}  # пункт только из КАТО (без улиц) после подтверждённых OSM
+        return sorted(found, key=lambda e: (rank.get(e.kind or "", 4), src.get(e.source, 3)))
 
     @staticmethod
     def _guarded(state: ParseState) -> list[tuple[int, int, str]]:
@@ -209,7 +210,11 @@ class Arbiter:
                 else []
             )
             in_prov = [a for a in c.alts if prov_e is not None and a.province_id == prov_e.id]
-            c.entity = (with_street or in_prov or c.alts)[0]
+            # район в строке различает одноимённые сёла одной и разных областей («Аральский район, Абай»)
+            dist = ctx.get("district")
+            dist_e = dist.entity if dist else None
+            in_dist = [a for a in c.alts if dist_e is not None and a.district_id == dist_e.id]
+            c.entity = ([a for a in in_dist if a in with_street] or in_dist or with_street or in_prov or c.alts)[0]
         if f in CANONICAL and c.entity is not None:
             out["ref_exists"] = w.get("ref_exists", 0.0)
             e = c.entity

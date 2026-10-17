@@ -19,6 +19,9 @@ ADJ_ENDINGS = ("ский", "цкий", "ской", "ская", "кий", "ный
 PROVINCE_BARE = frozenset({"вко", "зко", "ско", "юко"})
 
 
+SOURCE_RANK = {"seed": 0, "osm": 1, "kato": 2}
+
+
 class Admin:
     name = "admin"
 
@@ -99,12 +102,15 @@ class Admin:
         """Из нескольких одноимённых сущностей выбираем согласованную с уже найденной областью/городом."""
         pid = state.ref_ids.get("province")
         cid = state.ref_ids.get("city")
+        did = state.ref_ids.get("district")
         rank = {"republican": 0, "city": 1, "town": 2, "village": 3}
 
-        def key(e: Entity) -> tuple[int, int, int]:
+        def key(e: Entity) -> tuple[int, int, int, int]:
             return (
                 0 if (cid and e.city_id == cid) or (pid and e.province_id == pid) else 1,
-                0 if e.source == "seed" else 1,
+                # одноимённые сёла одной области различает район, написанный в строке
+                0 if did and e.district_id == did else 1,
+                SOURCE_RANK.get(e.source, 3),  # пункт только из КАТО (без улиц и координат) последний
                 rank.get(e.kind or "", 4),
             )
 

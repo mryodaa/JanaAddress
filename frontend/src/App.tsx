@@ -119,6 +119,16 @@ export function App() {
           )}
         </div>
       </main>
+      <footer className="border-t border-slate-200 px-4 py-1.5 text-center text-[11px] text-slate-500">
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noreferrer"
+          className="hover:text-slate-700 hover:underline"
+        >
+          {t("osmAttribution")}
+        </a>
+      </footer>
     </div>
   );
 }

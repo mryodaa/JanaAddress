@@ -53,7 +53,9 @@ class OutputRecord(BaseModel):
 
 class FieldExplain(BaseModel):
     value: str | None
-    source: str | None = Field(description="string | reference:<osm|kato|seed> | manual")
+    source: str | None = Field(
+        description="string | reference:osm:<house|street|polygon|point|poi> | reference:<seed|kato> | manual"
+    )
     span: tuple[int, int] | None = Field(default=None, description="[start, end) в символах ОРИГИНАЛЬНОЙ raw_address")
 
 

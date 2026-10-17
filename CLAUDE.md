@@ -13,7 +13,12 @@
 .venv/Scripts/python scripts/eval.py PRED.json GOLD.json [--strict-fp] [--baseline OLD_PRED.json]
 .venv/Scripts/python scripts/gen_dev.py --n 1000 --seed 1 [--chaos]   # синтетический dev-набор -> data/dev_synth.json
 .venv/Scripts/python scripts/fuzz.py --n 20000                 # инварианты на мусорном вводе, код 1 при нарушениях
-.venv/Scripts/python scripts/build_reference/build_sqlite.py [--osm ...] [--kato ...]   # после правки seed/*.yaml
+# справочник (docs/REFERENCE.md): геометрия только здесь, рантайм читает готовые привязки из SQLite
+.venv/Scripts/python scripts/build_reference/osm_survey.py                     # разведка дампа -> docs/OSM_SURVEY.md
+.venv/Scripts/python scripts/build_reference/osm_extract.py && .venv/Scripts/python scripts/build_reference/assign_districts.py
+.venv/Scripts/python scripts/build_reference/build_sqlite.py --osm scripts/build_reference/cache/osm_assigned --kato scripts/build_reference/cache/kato.json   # после правки seed/*.yaml
+.venv/Scripts/python scripts/build_reference/gen_landmarks.py                  # бренды POI -> rules/landmarks_osm.yaml
+.venv/Scripts/python scripts/coverage_report.py IN.json [--db OLD.sqlite]      # доля восстановленных полей по источникам
 .venv/Scripts/python scripts/export_openapi.py && (cd frontend && npm run gen:api)    # после правки API-моделей
 cd frontend && npm run build && npx biome check src                                    # сборка коммитится
 # теггер (docs/ARCHITECTURE.md, «Гибридный разбор»); torch только в .venv-train (requirements-train.txt)
@@ -39,9 +44,10 @@ cd frontend && npm run build && npx biome check src                             
 ## Жёсткие правила (от них зависит метрика и допуск)
 
 * `id`, `raw_address` возвращаются байт в байт; ровно один ответ на запись, порядок сохраняется; исключение на записи даёт все поля null (runner.parse_record).
-* Неопределённое поле = `null`, не `""`. null лучше неверного значения: при сомнении ставить флаг и понижать confidence, а не угадывать.
+* Неопределённое поле = `null`, не `""`. null лучше неверного значения: при сомнении ставить флаг и понижать confidence, а не угадывать. Исключение (решение команды, Q20): справочный district/living_area по улице в нескольких районах ставится лучшим кандидатом с флагом.
 * `street_name`/`landmark` вырезаются из ОРИГИНАЛЬНОЙ строки по спану (`util.value_from`): без исправления опечаток, падежа и регистра. `fold()`/`norm()` только для сравнения, никогда для вывода.
-* Строковое значение никогда не перезаписывается справочным (`ParseState.set_field`). Источник: `string` | `reference:<seed|osm|kato>` | `manual`.
+* Строковое значение никогда не перезаписывается справочным (`ParseState.set_field`). Источник: `string` | `reference:osm:<house|street|polygon|point|poi>` | `reference:<seed|kato>` | `manual`.
+* Справочник: shapely/osmium/геометрия только в `scripts/build_reference/`, в рантайме только индексные запросы. Синтетика (gen_dev, gen_train_tagger, test_synth_spans) читает снапшот `reference/reference.synth_v1.sqlite` (`config.SYNTH_DB`), а не основной файл: иначе пересборка справочника сдвигает отложенные наборы и split unseen.
 * ЗАПРЕЩЕНО: сопоставление по id, кэш/таблица по целой строке, запоминание train.json. В справочнике только топонимы. Не ставить `lru_cache` на функции разбора целой строки (кэш по отдельным токенам/топонимам можно). Проверка: `tests/test_no_memorization.py`.
 * Никаких сетевых вызовов в рантайме. Сеть только в `scripts/build_reference/download.py`.
 * `data/` в .gitignore и .dockerignore. Строки train.json не копировать в тесты, фикстуры и коммиты.
