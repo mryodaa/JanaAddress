@@ -24,6 +24,7 @@ flags:
   fuzzy_admin: -0.05
   guessed_street: -0.08
   guessed_city: -0.05
+  city_district_conflict: -0.05  # пункт не из района, написанного в строке: город как в строке
   extra_numbers: -0.08
   district_ambiguous: -0.04    # улица в нескольких районах: взят лучший по доле (Q20)
   # восстановление по справочнику с пониженной уверенностью (pipeline/reference_step.py); поля вне строки

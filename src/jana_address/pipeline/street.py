@@ -55,6 +55,8 @@ POSTFIX_FOLDS = frozenset(
 
 
 _DASH_NUM = re.compile(r"\d{1,2}[^\W\d_]?")
+# маркеры перекрёстка (они же предлоги ориентира в rules/landmarks.yaml)
+INTERSECTION = frozenset({"угол", "уг", "пересечение", "киылысы", "бурышы"})
 
 
 def _is_initial(toks: list[Token], i: int) -> bool:
@@ -112,7 +114,14 @@ class Street:
         )
 
     def _collect(
-        self, state: ParseState, seg: list[int], k: int, direction: int, area: bool, later_free_num: bool
+        self,
+        state: ParseState,
+        seg: list[int],
+        k: int,
+        direction: int,
+        area: bool,
+        later_free_num: bool,
+        complex_: bool = False,
     ) -> list[int]:
         """Имя по одну сторону от маркера в пределах сегмента."""
         toks = state.tokens
@@ -135,6 +144,9 @@ class Street:
                 # латиница в названиях ЖК («ЖК EXPO Boulevard», «Luxury Park»): не тип улицы и не ориентир
                 if stop and area and t.text.isascii() and t.text not in self.rules.details:
                     stop = False
+                if stop and complex_ and direction > 0 and out and self._complex_tail(state, seg, j):
+                    out.append(seg[j])  # «ЖК Есентай парк кв 18», «ЖК Изумрудный квартал»: слово-объект в конце имени
+                    break
                 if stop or words >= 4:
                     break
                 out.append(seg[j])
@@ -161,6 +173,9 @@ class Street:
                         j += direction
                         continue
                     break
+                if direction > 0 and out and self._glued_dash(toks, out, seg[j]):
+                    out.append(seg[j])  # «мкр Коктал-1, ул. ...»: номер через дефис слитно это часть названия
+                    break
                 if direction < 0:
                     out.append(seg[j])  # «Нурсити 2 микрорайон», «66квартал»
                 elif not out:
@@ -178,6 +193,28 @@ class Street:
                 break
             j += direction
         return out if direction > 0 else out[::-1]
+
+    @staticmethod
+    def _glued_dash(toks: list[Token], name: list[int], num: int) -> bool:
+        t, dash = toks[num], toks[num - 1]
+        return (
+            t.free
+            and t.glued_left
+            and name[-1] == num - 2
+            and dash.text == "-"
+            and dash.glued_left
+            and bool(_DASH_NUM.fullmatch(t.text))
+        )
+
+    def _complex_tail(self, state: ParseState, seg: list[int], j: int) -> bool:
+        """Слово-объект («парк», «квартал», «сити») после имени ЖК входит в имя, если за ним конец сегмента,
+        номер или маркер детали, то есть ориентиром оно быть не может."""
+        r, toks = self.rules, state.tokens
+        t = toks[seg[j]]
+        if t.text in r.details or t.text in r.lm_prepositions:
+            return False
+        nxt = seg[j + 1] if j + 1 < len(seg) else None
+        return nxt is None or toks[nxt].kind == "num" or toks[nxt].text in r.details
 
     def _name_number(self, state: ParseState, name: list[int], seg: list[int], j: int) -> bool:
         """Короткий номер после названия входит в него, если дом уже взят маркером сразу за номером
@@ -217,6 +254,11 @@ class Street:
         base = " ".join(toks[i].text for i in name)
         if self.store.lookup(f"{base} {toks[num].text}", ("living_area",)):
             return True
+        k = num + 1
+        while k < len(toks) and (toks[k].kind == "sep" or toks[k].text == "."):
+            k += 1
+        if k < len(toks) and toks[k].used_by in ("marker:house", "house"):
+            return True  # «мкр Акмешит 3 дом 10»: дом идёт по маркеру сразу за номером, номер в названии
         if self.store.lookup(base, ("living_area",)):
             return False
         # дальше есть ещё свободный номер (это дом) или дом уже найден по маркеру
@@ -248,11 +290,15 @@ class Street:
                 marker = seg[k : k + n]
                 area = st.kind in ("area", "numbered")
                 later = any(toks[i].kind == "num" and toks[i].free for s in segs[si:] for i in s if i > marker[-1])
-                after = self._collect(state, seg, k + n, +1, area, later)
+                after = self._collect(state, seg, k + n, +1, area, later, st.canonical == "жилой комплекс")
                 before = self._collect(state, seg, k - 1, -1, area, later)
+                # реестровый формат «ШУХОВА (УЛИЦА), 37Б»: тип в скобках после названия
+                paren = k > 0 and toks[seg[k - 1]].text == "(" and k + n < len(seg) and toks[seg[k + n]].text == ")"
+                if paren:
+                    before = self._collect(state, seg, k - 2, -1, area, later)
                 mfold = " ".join(fold(toks[i].text) for i in marker)
                 after_words = any(toks[i].kind == "word" for i in after)
-                if mfold in POSTFIX_FOLDS and before:
+                if (mfold in POSTFIX_FOLDS or paren) and before:
                     name = before
                 # «66квартал 12»: с обеих сторон только числа -> номер перед маркером это имя, после это дом
                 elif after and (after_words or not before):
@@ -270,8 +316,9 @@ class Street:
                         nxt_i < len(seg)
                         and toks[seg[nxt_i]].kind == "num"
                         and toks[seg[nxt_i]].free
-                        and nxt_i == len(seg) - 1
                         and "house" in state.fields
+                        # «ул. 5, д. 7» или «ул 7 д 14»: за номером конец сегмента или маркер дома
+                        and (nxt_i == len(seg) - 1 or toks[seg[nxt_i + 1]].used_by == "marker:house")
                     ):
                         name = [seg[nxt_i]]
                 if not name:
@@ -381,6 +428,14 @@ class Street:
                     break
                 nxt = toks[seg[j]] if j < len(seg) else None
                 if run and nxt is not None and _house_like(nxt):
+                    return run
+                # «Шаляпина угол Саина, д 34»: перекрёсток, улица записи первая, вторая уходит в ориентир
+                if (
+                    run
+                    and nxt is not None
+                    and fold(nxt.text) in INTERSECTION
+                    and ("house" in state.fields or any(u.kind == "num" and u.free for u in toks[seg[j] :]))
+                ):
                     return run
                 # «Тараз қаласы Добролюбова, 22»: до улицы в сегменте только уже разобранное (город)
                 if (

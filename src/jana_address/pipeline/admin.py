@@ -13,7 +13,15 @@ from ..reference.normalize import fold
 from ..reference.store import Entity, Store, ambiguous_city_keys, get_store
 from ..rules_loader import Rules, get_rules
 from .base import ParseState, StepTrace
-from .util import has_kazakh, is_cyrillic, mark, marker_ok, match_phrase, segments, value_from
+from .util import (
+    as_written,
+    mark,
+    marker_ok,
+    match_phrase,
+    segments,
+    tidy_value,
+    value_from,
+)
 
 ADJ_ENDINGS = ("ский", "цкий", "ской", "ская", "кий", "ный", "инский", "ий", "ый", "ой")
 PROVINCE_BARE = frozenset({"вко", "зко", "ско", "юко"})
@@ -67,6 +75,13 @@ class Admin:
             words.append(toks[free[j]].text)
             j += 1
         return any(self.store.streets(" ".join(words[:m]), city_id) for m in range(len(words), 0, -1))
+
+    def _other_words(self, state: ParseState, toks: list[int]) -> bool:
+        """В записи есть свободное слово (не маркер) вне toks: кандидат в название улицы."""
+        return any(
+            i not in toks and t.free and t.kind == "word" and not self._is_marker_word(t.text)
+            for i, t in enumerate(state.tokens)
+        )
 
     def _is_marker_word(self, text: str) -> bool:
         r = self.rules
@@ -124,7 +139,9 @@ class Admin:
 
     def _set_city(self, state: ParseState, e: Entity, toks: list[int], tr: StepTrace, score: float = 1.0) -> None:
         span = value_from(state, [state.tokens[i] for i in toks])
-        if state.set_field("city", e.name, span=span[1] if span else None, score=score):
+        # Q22: как в строке (казахская форма, опечатки тоже); справочник только для привязки
+        value = as_written(span[0], e.name) if span else e.name
+        if state.set_field("city", value, span=span[1] if span else None, score=score):
             state.ref_ids["city"] = e.id
             if e.kind == "republican" and "province" not in state.ref_ids:
                 state.ref_ids["province"] = e.province_id
@@ -133,6 +150,63 @@ class Admin:
             # второй, другой город в строке: это может быть название улицы/мкр, поэтому не помечаем
             return
         mark(state, toks, "admin:city")
+
+    def _registry_district(self, state: ParseState, segs: list[list[int]], tr: StepTrace) -> None:
+        """Реестровый формат «Г.АЛМАТЫ, АУЭЗОВСКИЙ, АУЭЗОВСКИЙ (АЛМАТЫ), ...»: район без маркера, в скобках его город.
+        Сегмент-повтор названия района («АУЭЗОВСКИЙ,») тоже съедается, иначе он станет улицей."""
+        cid = state.ref_ids.get("city")
+        if cid is None or "district" in state.fields:
+            return
+        toks = state.tokens
+        for seg in segs:
+            for k in range(1, len(seg) - 2):
+                if not (toks[seg[k]].text == "(" and toks[seg[k + 2]].text == ")" and toks[seg[k + 1]].kind == "word"):
+                    continue
+                if not any(e.id == cid for e in self.store.lookup(toks[seg[k + 1]].text, ("city",))):
+                    continue
+                name = [i for i in seg[:k] if toks[i].kind == "word" and toks[i].free]
+                found = self._best(state, [name[-2:], name[-1:]], ("district",), lambda e: e.city_id == cid)
+                if not found:
+                    continue
+                ent, dt = found
+                v = value_from(state, [toks[i] for i in dt])
+                if not v:
+                    continue
+                value = as_written(v[0], ent.name)
+                if state.set_field("district", value, span=v[1], score=0.9):
+                    state.ref_ids["district"] = ent.id
+                    tr.notes.append(f"district {value!r} (реестровый формат «район (город)»)")
+                mark(state, dt + seg[k : k + 3], "admin:district")
+                key = [fold(toks[i].text) for i in dt]
+                for other in segs:
+                    words = [i for i in other if toks[i].kind == "word" and toks[i].free]
+                    if words and [fold(toks[i].text) for i in words] == key:
+                        mark(state, words, "admin:district")
+                return
+
+    def _reconcile_city(self, state: ParseState, tr: StepTrace) -> None:
+        """Пункт и район области из строки не согласованы («Илийский район, с. Новоселовка»: так в справочнике
+        звалось село другой области): берём одноимённый пункт этого района, иначе название как в строке без
+        привязки к справочнику (область тогда восстановится по району)."""
+        cid, did = state.ref_ids.get("city"), state.ref_ids.get("district")
+        fv = state.fields.get("city")
+        if cid is None or did is None or fv is None or fv.span is None:
+            return
+        e, d = self.store.get("city", cid), self.store.get("district", did)
+        if e is None or d is None or d.kind != "oblast" or e.district_id in (None, d.id):
+            return
+        text = tidy_value(state.raw[fv.span[0] : fv.span[1]])
+        same = [x for x in self.store.lookup(text, ("city",)) if x.district_id == d.id]
+        if same:
+            value = as_written(text, same[0].name)
+            state.set_field("city", value, span=fv.span, score=fv.score, overwrite=True)
+            state.ref_ids["city"] = same[0].id
+            tr.notes.append(f"city {e.name!r} -> {same[0].name!r}: пункт в районе {d.name!r}")
+        elif text:
+            state.set_field("city", text, span=fv.span, score=0.6, overwrite=True)
+            del state.ref_ids["city"]
+            state.flags.add("city_district_conflict")
+            tr.notes.append(f"city {e.name!r} не в районе {d.name!r}: взято как в строке {text!r}")
 
     # ---------- основной проход ----------
     def __call__(self, state: ParseState) -> ParseState:
@@ -213,6 +287,13 @@ class Admin:
                 n = (pre or suf)[1]  # type: ignore[index]
                 weak = (n == 1 and fold(t.text) in r.weak_prefixes) or (n == 1 and len(t.text) == 1)
                 before, after = self._words_around(state, seg, k, n)
+                if weak and pre and k + 1 < len(seg) and state.tokens[seg[k + 1]].text == "." and after:
+                    # «с. Казциковка», «п. Энергетический»: с точкой и заглавной буквой это уже маркер пункта;
+                    # «ул. С.Кожанов» (после типа улицы или заглавная слитно с фамилией) это инициал
+                    words_before = [state.tokens[i].text for i in seg[:k] if state.tokens[i].kind == "word"]
+                    prev_word = words_before[-1] if words_before else ""
+                    initial = prev_word in r.street_types or (t.text.isupper() and state.tokens[after[0]].glued_left)
+                    weak = initial or not state.tokens[after[0]].text[:1].isupper()
                 if pre and suf:  # «қ» бывает и до, и после названия: «қ. Алматы», «Алматы қ.»
                     cands = [after[:3], after[:2], after[:1], before[-3:], before[-2:], before[-1:]]
                 elif pre:
@@ -271,12 +352,17 @@ class Admin:
                     )
 
                 found = self._best(
-                    state, [before[-2:], before[-1:], after[:3], after[:2], after[:1]], ("district",), in_scope
+                    state,
+                    [before[-3:], before[-2:], before[-1:], after[:3], after[:2], after[:1]],
+                    ("district",),
+                    in_scope,
                 )
                 toks = []
                 ent: Entity | None = None
                 if found:
                     ent, toks = found
+                elif before and fold(state.tokens[before[-1]].text) == "атындагы":
+                    toks = before[-3:]  # «Қазыбек Би атындағы ауданы» («имени Казыбек би»): имя целиком
                 elif before and fold(state.tokens[before[-1]].text).endswith(ADJ_ENDINGS):
                     toks = before[-1:]
                 elif after:
@@ -288,12 +374,15 @@ class Admin:
                 v = value_from(state, [state.tokens[i] for i in toks])
                 if not v:
                     continue
-                value = v[0] if (is_cyrillic(v[0]) and not has_kazakh(v[0])) or ent is None else ent.name
+                value = as_written(v[0], ent.name if ent else v[0])  # Q13/Q22: как в строке, без «район»
                 if state.set_field("district", value, span=v[1], score=1.0 if ent else 0.7):
                     if ent:
                         state.ref_ids["district"] = ent.id
                     tr.notes.append(f"district {value!r}" + (f" -> справочник {ent.name!r}" if ent else ""))
                 mark(state, toks + seg[k : k + n], "admin:district")
+
+        self._registry_district(state, segs, tr)
+        self._reconcile_city(state, tr)
 
         # 4) город без маркера («Алматы, ...», «Алматы Абая 1»): только в начале/конце сегмента,
         #    не рядом с типом улицы и не перед номером (иначе это улица: «Туркестан 12»)
@@ -322,6 +411,14 @@ class Admin:
                     whole = len(toks) == len(free)
                     nxt = free[start + n] if start + n < len(free) else None
                     after_nxt = free[start + n + 1] if start + n + 1 < len(free) else None
+                    # «Енбекшиказахский район, Есик Тауелсиздик 25»: пункт района из строки в начале сегмента,
+                    # дальше слово (улица), значит это пункт, хотя имя совпадает с улицами и без маркера
+                    did = state.ref_ids.get("district")
+                    in_dist = (
+                        [e for e in cities if e.district_id == did]
+                        if did is not None and start == 0 and nxt is not None and state.tokens[nxt].kind == "word"
+                        else []
+                    )
                     if fold(text) in amb and not whole:
                         # «Балхаш Гагарина 56»: имя совпадает с улицами, но дальше идёт улица этого города;
                         # «Шу микрорайон 8»: дальше номерной микрорайон / квартал
@@ -337,7 +434,7 @@ class Admin:
                             for e in cities
                             if start == 0
                             and ((numbered_area and e.kind != "village") or self._street_follows(state, free, n, e.id))
-                        ]
+                        ] or in_dist
                         if not confirmed:
                             continue
                         cities = confirmed
@@ -364,7 +461,10 @@ class Admin:
                     ):
                         continue
                     e = self._prefer(state, cities)
-                    if e.kind == "village" and not whole:
+                    if e.kind == "village" and not whole and e not in in_dist:
+                        continue
+                    if e.kind == "village" and not self._other_words(state, toks):
+                        # «Абая, 52»: кроме этого слова улице взяться неоткуда, значит это улица, а не село
                         continue
                     self._set_city(state, e, toks, tr, score=0.9)
 

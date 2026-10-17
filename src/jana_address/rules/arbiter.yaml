@@ -16,7 +16,7 @@ prior: {rules: 0.762, model: 2.174}
 rules_p: {default: 1.0}
 checks: {ref_exists: 1.361, ref_consistent: 0.499, ref_conflict: -0.045, street_in_city: 0.437,
   street_fuzzy: 0.073, house_on_street: 0.56, area_in_city: 0.191, grammar_ok: 0.936,
-  grammar_bad: -0.071, noise_overlap: -1.825, marker_only: -0.014}
+  grammar_bad: -0.071, noise_overlap: -1.825, marker_only: -0.014, city_status: 0.0}
 accept_model_only: {default: 1.386}
 min_p_model_only: {default: 0.9, landmark: 0.85}
 noise_p: 0.8

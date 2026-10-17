@@ -8,7 +8,8 @@
 
 улица:
   kind: street
-  aliases: [ул, улица, у, улиц, улица., улицы, ули, уо, ulica, ulitsa, ulitca, ul, str, street, st,
+  aliases: [ул, улица, у, улиц, улица., улицы, ули, уо, улитса, улитца, улца, улиця, ulica, ulitsa, ulitca, ul,
+            str, street, st,
             көшесі, көше, көш, кош, кошеси, кошесі, кошесы, koshesi, koshe]
 проспект:
   kind: street

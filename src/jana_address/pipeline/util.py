@@ -53,8 +53,12 @@ def value_from(state: ParseState, toks: list[Token]) -> tuple[str, tuple[int, in
 
 
 def house_text(text: str) -> str:
-    """Номер дома как есть, только без пробелов вокруг дроби: «1 / 2» -> «1/2»."""
-    return re.sub(r"\s*/\s*", "/", tidy_value(text))
+    """Номер дома как есть, только без пробелов вокруг дроби: «1 / 2» -> «1/2». Кавычки вокруг литеры («85 "А"»)
+    убираются: жюри пунктуацию не сравнивает, а обрезанная по краю кавычка («85 "А») выглядит ошибкой."""
+    return re.sub(r"\s*/\s*", "/", tidy_value(_HOUSE_QUOTES.sub("", text)))
+
+
+_HOUSE_QUOTES = re.compile(r'["«»“”„]+(?=\s*[^\W\d_])|(?<=[^\W\d_])["«»“”„]+')  # только вокруг литеры
 
 
 def house_value(state: ParseState, tok: Token) -> tuple[str, tuple[int, int]]:
@@ -91,16 +95,23 @@ def marker_ok(state: ParseState, rules: Rules, idx: list[int], k: int, n: int) -
 def match_phrase(state: ParseState, index: PhraseIndex[object], idx: list[int], k: int) -> tuple[object, int] | None:
     """Совпадение фразы из словаря, начиная с токена idx[k] (только свободные слова подряд)."""
     folds: list[str] = []
-    for j in idx[k:]:
-        t = state.tokens[j]
+    pos: list[int] = []  # позиция каждого слова в idx: точка внутри сокращения («ш.а.», «ж.м.») пропускается
+    for p in range(k, len(idx)):
+        t = state.tokens[idx[p]]
+        if t.kind == "punct" and t.text == "." and folds and len(folds[-1]) <= 2 and t.free:
+            continue
         if t.kind != "word" or not t.free:
             break
         folds.append(fold(t.text))
+        pos.append(p)
         if len(folds) >= 4:
             break
     if not folds:
         return None
-    return index.match(folds, 0)
+    m = index.match(folds, 0)
+    if m is None:
+        return None
+    return m[0], pos[m[1] - 1] - k + 1
 
 
 def free_words(state: ParseState, seg: list[int]) -> list[int]:
@@ -114,6 +125,21 @@ def mark(state: ParseState, idx: list[int], label: str) -> None:
     for i in idx:
         if i + 1 < len(state.tokens) and state.tokens[i + 1].text == "." and state.tokens[i + 1].free:
             state.tokens[i + 1].used_by = label
+
+
+# служебное слово пункта/района, попавшее в спан через алиас справочника («АЛМАТЫ - Г», «Алматы г», «Іле ауданы»)
+_ADMIN_EDGE = re.compile(
+    r"^(?:г|гор|город|с|пос|п|село|посёлок|поселок|аул|ауыл|р-н|район)\.?\s*[-–]?\s+"
+    r"|(?:\s*[-–]\s*|\s+)(?:г|гор|город|қ|қаласы|каласы|ауылы|ауыл|кенті|кент|р-н|район|ауданы|ауд|г\.а|қ\.ә)\.?$",
+    re.I,
+)
+
+
+def as_written(written: str | None, canonical: str) -> str:
+    """Q22: город и район как в строке, без перевода и нормализации (казахская форма, латиница, регистр, опечатки
+    остаются), только без служебного слова. Справочник нужен для привязки и для полей, которых в строке нет."""
+    w = _ADMIN_EDGE.sub("", (written or "").strip()).strip()
+    return w or canonical
 
 
 def has_kazakh(text: str) -> bool:

@@ -136,6 +136,10 @@ def _only_separators(text: str) -> bool:
     return all(ch.isspace() or ch in ",.;:-" or unicodedata.category(ch) == "Cf" for ch in text)
 
 
+# строение без номера дома перед ним = номер здания («строение 25» -> «25»), корпус/блок остаются как написано (Q10)
+STRUCTURE_WORDS = frozenset({"строение", "стр"})
+
+
 class AttachBuilding:
     """Шаг building: корпус/строение, забранные шагом parts, входят в house как написано (Q10): «5 корп 2», «11к2»,
     «30/1 стр. 2». Только если корпус идёт сразу за номером дома (между ними пробелы, запятая, точка или ничего);
@@ -163,6 +167,10 @@ class AttachBuilding:
                     tr.notes.append(f"house {value!r}: с корпусом/строением (Q10)")
             elif house is None:
                 gs, ge = self._span(state, groups[0])
+                nums = [i for i in groups[0] if state.tokens[i].kind == "num"]
+                if fold(state.tokens[groups[0][0]].text) in STRUCTURE_WORDS and nums:
+                    # «улица Кривенко, строение 25»: строение без дома это и есть номер здания
+                    gs, ge = self._span(state, nums)
                 value = house_text(state.raw[gs:ge])
                 if state.set_field("house", value, span=(gs, ge), score=0.6):
                     attached.append(groups[0])

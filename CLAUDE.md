@@ -28,6 +28,10 @@ cd frontend && npm run build && npx biome check src                             
 .venv/Scripts/python -m training.fit_arbiter --write          # веса арбитра и confidence, только dev
 .venv/Scripts/python scripts/compare_modes.py --out docs/hybrid_results.md   # rules / tagger / hybrid на отложенных
 .venv/Scripts/python scripts/eval.py PRED.json GOLD.json --run hybrid        # разобрать эталон в режиме и оценить
+# почти реальный эталон (train.json не выдадут): data/realish/, компактная разметка -> JSON, проверка, сплит dev/holdout
+.venv/Scripts/python scripts/realish.py lines data/realish/llm/*.txt --tag src:llm --prefix llm_ --out data/realish/llm.json
+.venv/Scripts/python scripts/realish.py validate data/realish/llm.json && .venv/Scripts/python scripts/realish.py split data/realish/llm.json
+.venv/Scripts/python scripts/build_reference/download.py egov && .venv/Scripts/python scripts/realish.py egov --out data/realish/egov/raw.txt
 ```
 
 ## Архитектура (коротко)
@@ -51,7 +55,7 @@ cd frontend && npm run build && npx biome check src                             
 * ЗАПРЕЩЕНО: сопоставление по id, кэш/таблица по целой строке, запоминание train.json. В справочнике только топонимы. Не ставить `lru_cache` на функции разбора целой строки (кэш по отдельным токенам/топонимам можно). Проверка: `tests/test_no_memorization.py`.
 * Никаких сетевых вызовов в рантайме. Сеть только в `scripts/build_reference/download.py`.
 * `data/` в .gitignore и .dockerignore. Строки train.json не копировать в тесты, фикстуры и коммиты.
-* Теггер только предлагает спаны: значение строкового поля всегда срез raw (`util.value_from`/`tidy_value`), canonical через справочник. Веса арбитра подбирать только на dev (dev_synth, dev_chaos, val), не на отложенных (dev_synth_s2, dev_chaos_holdout, dev_chaos_v2_holdout, dev_hard_holdout, unseen). Seed 1, 2, 11, 99, 4242, 4343 заняты dev/отложенными наборами.
+* Теггер только предлагает спаны: значение строкового поля всегда срез raw (`util.value_from`/`tidy_value`), canonical через справочник. Веса арбитра подбирать только на dev (dev_synth, dev_chaos, val, data/realish/*_dev), не на отложенных (dev_synth_s2, dev_chaos_holdout, dev_chaos_v2_holdout, dev_hard_holdout, unseen, data/realish/*_holdout). На *_holdout не смотреть ошибки, только итог. Seed 1, 2, 11, 99, 4242, 4343 заняты dev/отложенными наборами.
 * Не запускать тяжёлое параллельно с обучением: памяти мало, torch падает с access violation (есть `--resume`).
 * Невидимые символы: инструмент Write превращает `\u200b` в литерал; после записи .py проверять скан на литеральные невидимые символы.
 

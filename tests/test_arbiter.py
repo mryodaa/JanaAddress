@@ -61,10 +61,10 @@ def test_agreement_keeps_rules_values() -> None:
 
 
 def test_string_values_cut_from_raw() -> None:
-    """Значение модели это срез исходной строки (регистр и опечатки как есть), canonical через справочник."""
+    """Значение модели это срез исходной строки (регистр и опечатки как есть), область каноном через справочник."""
     raw = "АЛМАТЫ, абая 150"
     out = run(raw, [find(raw, "АЛМАТЫ", "CITY"), find(raw, "абая", "STREET_NAME"), find(raw, "150", "HOUSE")], "only")
-    assert out["street_name"] == "абая" and out["city"] == "Алматы" and out["house"] == "150"
+    assert out["street_name"] == "абая" and out["city"] == "АЛМАТЫ" and out["house"] == "150"
 
 
 def test_only_mode_drops_rules_fields() -> None:

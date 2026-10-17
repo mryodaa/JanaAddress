@@ -2,6 +2,7 @@
 
     python scripts/build_reference/download.py osm         # Geofabrik: kazakhstan-latest.osm.pbf (~220 МБ)
     python scripts/build_reference/download.py kato --url <ссылка на КАТО xlsx/csv с stat.gov.kz>
+    python scripts/build_reference/download.py egov [--max-rows 400]   # адресные строки открытых наборов -> cache/egov/
 
 Рантайм сервиса в сеть не ходит: сеть нужна только этому скрипту при сборке справочника.
 Лицензии: OSM ODbL 1.0 (© участники OpenStreetMap), КАТО открытые данные АСПиР РК (см. docs/REFERENCE.md).
@@ -10,10 +11,17 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import http.cookiejar
+import json
+import re
 import sys
+import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 CACHE = Path(__file__).resolve().parent / "cache"
 SOURCES = {
@@ -66,12 +74,155 @@ def fetch(url: str, dest: Path, retries: int = 500) -> Path:
     raise RuntimeError(f"не удалось скачать {url}")
 
 
+EGOV = "https://data.egov.kz"
+# колонка с адресом: по имени ключа или по доле значений, похожих на адрес
+EGOV_ADDR_KEY = re.compile(r"addr|adres|adress|mekenzh|mekenjai|mekenzai|location", re.I)
+EGOV_ADDR_VALUE = re.compile(
+    r"(^|[\s,.(])(ул\.|улица|көшесі|мкр|микрорайон|пр-т|проспект|даңғылы|переулок|шағын аудан|д\.\s*\d|дом\s*№?\s*\d)",
+    re.I,
+)
+# в первую очередь: списки объектов, где адрес почти наверняка есть
+EGOV_PRIORITY = re.compile(
+    r"школ|мектеп|детск|сад|балабақша|аптек|дәріхана|поликлин|больниц|нотариус|адрес|мекенжай|список|перечень|"
+    r"тізім|тізбе|реестр|тізілім|контакт|отделен|ЦОН|КСК|ОСИ|общежит|объект",
+    re.I,
+)
+# наборы, где бывает адрес объекта: школы, сады, аптеки, организации... (остальное в основном статистика)
+EGOV_NAME = re.compile(
+    r"школ|мектеп|сад|балабақша|аптек|дәрі|поликлин|больниц|аурухан|медицин|организац|ұйым|объект|нысан|учрежд|"
+    r"мекеме|библиотек|кітапхан|спорт|клуб|музе|театр|рын|базар|магазин|торгов|сауда|нотариус|адвокат|почт|пошта|"
+    r"отделен|филиал|центр|орталы|кондоминиум|ОСИ|КСК|общежит|жатақ|гостиниц|қонақ|кафе|предприят|кәсіпор|"
+    r"стоматолог|колледж|лицей|гимназ|университет|училищ|ЦОН|акимат|әкімд|адрес|мекенжай|список|тізім|перечень|"
+    r"тізбе|реестр|тізілім|контакт|байланыс|пункт|станц|парк|кладбищ|зират|приют|интернат|дом",
+    re.I,
+)
+
+
+class Egov:
+    """Внутренние JSON-эндпоинты страниц data.egov.kz (публичный API v4 требует ключ). 20 строк на страницу."""
+
+    def __init__(self, pause: float) -> None:
+        self.pause = pause
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+    def get(self, path: str, referer: str | None = None) -> str:
+        headers = {"User-Agent": UA, "X-Requested-With": "XMLHttpRequest", **({"Referer": referer} if referer else {})}
+        for attempt in range(1, 6):
+            try:
+                with self.opener.open(urllib.request.Request(EGOV + path, headers=headers), timeout=60) as resp:
+                    time.sleep(self.pause)
+                    return str(resp.read().decode("utf-8", "replace"))
+            except (OSError, TimeoutError) as exc:
+                print(f"  {path[:80]}: {exc!r}, попытка {attempt}", file=sys.stderr, flush=True)
+                time.sleep(5 * attempt)
+        return ""
+
+    def datasets(self) -> list[dict[str, Any]]:
+        q = "byGovAgencyId=&categoryId=&statusType=&datasetSortSelect=&status=PUBLISHED"
+        out: dict[str, dict[str, Any]] = {}
+        page = 1
+        while True:
+            text = self.get(f"/datasets/getdatasetsre?page={page}&count=10&{q}")
+            items = json.loads(text).get("datasets") if text.startswith("{") else None
+            before = len(out)
+            out.update({d["apiUri"]: d for d in items or []})
+            # за последней страницей сервер отдаёт её повтор: выходим, когда новых наборов нет
+            if len(out) == before:
+                return list(out.values())
+            if page % 50 == 0:
+                print(f"  список: страница {page}, наборов {len(out)}", flush=True)
+            page += 1
+
+    def rows(self, index: str, max_rows: int) -> tuple[str, list[str], list[dict[str, Any]]]:
+        """Первая страница определяет колонки адреса; без них дальше не листаем."""
+        view = f"{EGOV}/datasets/view?index={urllib.parse.quote(index)}"
+        m = re.search(r"currentVersion = '([^']+)'", self.get(f"/datasets/view?index={urllib.parse.quote(index)}"))
+        if not m:
+            return "", [], []
+        version, page = m.group(1), 1
+        rows: list[dict[str, Any]] = []
+        keys: list[str] = []
+        while len(rows) < max_rows:
+            text = self.get(
+                f"/datasets/getdata?index={urllib.parse.quote(index)}&version={version}&page={page}&count=20", view
+            )
+            data = json.loads(text) if text.startswith("{") else {}
+            rows.extend(data.get("elements") or [])
+            if page == 1:
+                keys = egov_address_keys(rows)
+                if not keys:
+                    break
+            if not data.get("elements") or page >= int(data.get("totalPages") or 0):
+                break
+            page += 1
+        return version, keys, rows[:max_rows]
+
+
+def egov_address_keys(rows: list[dict[str, Any]]) -> list[str]:
+    keys: list[str] = []
+    for k in {k for r in rows for k in r}:
+        vals = [str(r.get(k) or "") for r in rows if r.get(k)]
+        if not vals:
+            continue
+        hit = sum(bool(EGOV_ADDR_VALUE.search(v)) and 10 <= len(v) <= 200 for v in vals) / len(vals)
+        if hit >= 0.4 or (EGOV_ADDR_KEY.search(k) and hit >= 0.2):
+            keys.append(k)
+    return sorted(keys)
+
+
+def fetch_egov(max_rows: int, pause: float, workers: int = 4) -> None:
+    """Открытые наборы data.egov.kz с колонкой адреса -> cache/egov/<index>.json (строки для почти реального эталона,
+    не для справочника и не для образа). Сначала самые вероятные по названию (школы, сады, аптеки, адреса)."""
+    out_dir = CACHE / "egov"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    listing = out_dir / "_datasets.json"
+    if not listing.exists():  # список наборов это ~400 запросов: кэшируем
+        listing.write_text(json.dumps(Egov(pause).datasets(), ensure_ascii=False), encoding="utf-8")
+    all_sets = json.loads(listing.read_text(encoding="utf-8"))
+
+    def name(d: dict[str, Any]) -> str:
+        return f"{d.get('nameRu') or ''} {d.get('nameKk') or ''}"
+
+    sets = sorted((d for d in all_sets if EGOV_NAME.search(name(d))), key=lambda d: not EGOV_PRIORITY.search(name(d)))
+    todo = [
+        d
+        for d in sets
+        if not (out_dir / f"{d['apiUri']}.json").exists() and not (out_dir / f"{d['apiUri']}.skip").exists()
+    ]
+    print(f"наборов: {len(all_sets)}, по названию {len(sets)}, осталось {len(todo)}", flush=True)
+    local = threading.local()
+
+    def work(d: dict[str, Any]) -> str | None:
+        if not hasattr(local, "eg"):
+            local.eg = Egov(pause)  # своя сессия (cookie) на поток
+        version, keys, rows = local.eg.rows(d["apiUri"], max_rows)
+        if not keys:
+            (out_dir / f"{d['apiUri']}.skip").touch()
+            return None
+        payload = {"index": d["apiUri"], "version": version, "name": d.get("nameRu"), "keys": keys, "rows": rows}
+        (out_dir / f"{d['apiUri']}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return f"{d['apiUri']}: {len(rows)} строк, колонки {keys}"
+
+    found = 0
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        for i, msg in enumerate(pool.map(work, todo), 1):
+            if msg:
+                found += 1
+                print(f"[{i}/{len(todo)}] {msg}", flush=True)
+    print(f"наборов с адресом: {found} (новых), каталог {out_dir}")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["osm", "kato"])
+    ap.add_argument("what", choices=["osm", "kato", "egov"])
     ap.add_argument("--url", help="переопределить адрес источника")
+    ap.add_argument("--max-rows", type=int, default=400, help="egov: строк на набор")
+    ap.add_argument("--pause", type=float, default=0.2, help="egov: пауза между запросами, с")
+    ap.add_argument("--workers", type=int, default=4, help="egov: параллельных сессий")
     args = ap.parse_args(argv)
-    if args.what == "osm":
+    if args.what == "egov":
+        fetch_egov(args.max_rows, args.pause, args.workers)
+    elif args.what == "osm":
         url = resolve(args.url or SOURCES["osm"])
         print(f"источник: {url}", flush=True)
         fetch(url, CACHE / "kazakhstan-latest.osm.pbf")

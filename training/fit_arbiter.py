@@ -35,19 +35,20 @@ from jana_address import config  # noqa: E402
 from jana_address.pipeline.runner import Pipeline, parse_records  # noqa: E402
 
 CHECKS = ("ref_exists", "ref_consistent", "ref_conflict", "street_in_city", "street_fuzzy", "house_on_street",
-          "area_in_city", "grammar_ok", "grammar_bad", "noise_overlap", "marker_only")  # fmt: skip
+          "area_in_city", "grammar_ok", "grammar_bad", "noise_overlap", "marker_only", "city_status")  # fmt: skip
 FEATURES = ("src_rules", "src_model", "p_rules", "p_model", *CHECKS)
 HOLDOUT = {"dev_synth_s2", "dev_chaos_holdout", "dev_chaos_v2_holdout", "dev_hard_holdout", "unseen"}
 ACCEPT_P = 0.8
 
 
 def load_set(name: str) -> list[dict[str, Any]]:
-    assert name not in HOLDOUT, f"{name} отложенный: подбор весов на нём запрещён"
+    assert name not in HOLDOUT and not name.endswith("_holdout"), f"{name} отложенный: подбор весов на нём запрещён"
     if name == "val":
         rows = [json.loads(line) for line in (ROOT / "data" / "tagger" / "val.jsonl").open(encoding="utf-8")]
         return [{"id": f"v{i}", "raw_address": r["raw"], **{k: v for k, v in r.items() if k not in ("raw", "spans")}}
                 for i, r in enumerate(rows)]  # fmt: skip
-    return load(ROOT / "data" / f"{name}.json")
+    realish = ROOT / "data" / "realish" / f"{name}.json"  # почти реальный эталон (scripts/realish.py)
+    return load(realish if realish.exists() else ROOT / "data" / f"{name}.json")
 
 
 def candidate_rows(gold: list[dict[str, Any]], outs: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:

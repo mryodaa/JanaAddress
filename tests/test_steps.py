@@ -130,12 +130,12 @@ def test_bilingual_short_abbr_not_split() -> None:
         ("Ақтөбе облысы", "Актюбинская область", None, None),
         ("ВКО, Усть-Каменогорск", "Восточно-Казахстанская область", "Усть-Каменогорск", None),
         ("Илийский район", None, None, "Илийский"),
-        ("Іле ауданы", None, None, "Илийский"),
+        ("Іле ауданы", None, None, "Іле"),  # Q22: как в строке, без «ауданы»
         ("Турксибский р-н", None, None, "Турксибский"),
         ("г. Алматы, Алматы", None, "Алматы", None),
         ("Самал шағын ауданы", None, None, None),  # микрорайон, не район
-        ("Алма-Ата", None, "Алматы", None),
-        ("Almaty", None, "Алматы", None),
+        ("Алма-Ата", None, "Алма-Ата", None),  # Q22: русское написание как в строке
+        ("Almaty", None, "Almaty", None),
     ],
 )
 def test_admin(raw: str, province: str | None, city: str | None, district: str | None) -> None:

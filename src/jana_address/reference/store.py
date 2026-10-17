@@ -43,6 +43,15 @@ class Entity:
         return f"reference:{self.source}"
 
 
+# в OSM name:ru у части сёл есть родовое слово («Село имени Турара Рыскулова», «Посёлок Габидена Мустафина»);
+# по ТЗ city без «пос.»/«город», поэтому в каноническом виде его нет (алиасы с ним остаются для поиска)
+_CITY_GENERIC = re.compile(r"^(?:село|посёлок|поселок|аул|ауыл|станция|ст\.)\s+(?=\S)", re.I)
+
+
+def city_name(name: str) -> str:
+    return _CITY_GENERIC.sub("", name, count=1)
+
+
 def ref_source(origin: str, via: str | None = None) -> str:
     """Источник восстановленного поля: reference:osm:<house|street|polygon|point|poi>, reference:seed,
     reference:kato. Способ (via) пишется только у OSM: у ядра и КАТО привязка табличная."""
@@ -91,7 +100,7 @@ class Store:
         for row in con.execute("SELECT id, name, kind, province_id, city_id, source FROM districts"):
             self._put(Entity("district", row[0], row[1], row[2], row[3], row[4], row[0], source=row[5]))
         for row in con.execute("SELECT id, name, kind, province_id, district_id, source FROM cities"):
-            self._put(Entity("city", row[0], row[1], row[2], row[3], row[0], row[4], source=row[5]))
+            self._put(Entity("city", row[0], city_name(row[1]), row[2], row[3], row[0], row[4], source=row[5]))
         for row in con.execute(
             "SELECT a.id, a.name, a.type, c.province_id, a.city_id, a.district_id, a.source "
             "FROM living_areas a LEFT JOIN cities c ON c.id = a.city_id"
@@ -111,6 +120,12 @@ class Store:
         for etype, eid, key in con.execute("SELECT etype, eid, key FROM aliases"):
             if (etype, eid) not in self.alias[key]:
                 self.alias[key].append((etype, eid))
+        # каноническое имя без родового слова («имени Турара Рыскулова») тоже ищется: в строке после «с.» именно оно
+        for (etype, eid), e in self.entities.items():
+            if etype == "city":
+                for key in keys(e.name):
+                    if (etype, eid) not in self.alias[key]:
+                        self.alias[key].append((etype, eid))
         # улицы по городу: city_id -> key -> [street_id]
         self.streets_by_city: dict[int | None, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
         self.street_keys_global: dict[str, list[int]] = defaultdict(list)
@@ -174,6 +189,9 @@ class Store:
                 if etype in etypes and (etype, eid) not in seen:
                     seen.add((etype, eid))
                     out.append(self.entities[(etype, eid)])
+        if not out and " " in text.strip():
+            # «Кызыл Кайрат» = «Кызылкайрат», «Нур Султан» = «Нурсултан»: раздельное написание составного имени
+            return self.lookup(re.sub(r"\s+", "", text), etypes)
         return out
 
     def fuzzy(

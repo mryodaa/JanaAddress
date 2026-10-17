@@ -34,6 +34,7 @@ _ORDINAL = re.compile(r"^\d{1,3}-?(й|я|ая|ый|ий|ой)$")
 # литера через пробел: «12 А», «5 б», «135 Л». Без однобуквенных маркеров и союзов
 # (д — дом, к — корпус, п/с/т/у/ш — с точкой это сокращения, и — «12 и 14»)
 HOUSE_LETTERS = frozenset("абвгежзлмнорфхцчщэюяabc")
+_QUOTES = frozenset({'"', "«", "»", "“", "”", "„", "'"})
 
 
 def tokenize(text: str) -> list[Token]:
@@ -113,6 +114,30 @@ def _merge_spaced_letters(text: str, toks: list[Token]) -> list[Token]:
     i = 0
     while i < len(toks):
         t = toks[i]
+        if (
+            t.kind == "num"
+            and not t.text[-1].isalpha()
+            and i + 3 < len(toks)
+            and toks[i + 1].text in _QUOTES
+            and toks[i + 2].kind == "word"
+            and len(toks[i + 2].text) == 1
+            and toks[i + 2].text.isalpha()
+            and toks[i + 3].text in _QUOTES
+        ):
+            # литера в кавычках: «85 "А"», «12 «а»» (реестры, справки)
+            end = toks[i + 3].end
+            merged = Token(
+                text=text[t.start : end],
+                norm=norm(text[t.start : end]),
+                start=t.start,
+                end=end,
+                kind="num",
+                glued_left=t.glued_left,
+            )
+            merged.tags.add("spaced_letter")
+            out.append(merged)
+            i += 4
+            continue
         if (
             t.kind == "num"
             and not t.text[-1].isalpha()

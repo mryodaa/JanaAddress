@@ -43,7 +43,8 @@ def load_set(name: str) -> list[dict[str, Any]]:
              "_tags": r.get("tags", [])}
             for i, r in enumerate(rows)
         ]  # fmt: skip
-    return load(ROOT / "data" / f"{name}.json")
+    realish = ROOT / "data" / "realish" / f"{name}.json"  # почти реальный эталон (scripts/realish.py)
+    return load(realish if realish.exists() else ROOT / "data" / f"{name}.json")
 
 
 def pct(x: float) -> str:

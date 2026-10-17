@@ -25,7 +25,7 @@ from ..rules_loader import Rules
 from ..tagger.runtime import Prediction
 from .base import SOURCE_STRING, ParseState, StepTrace
 from .reference_step import AREA_TYPES, historical_province
-from .util import has_kazakh, house_text, is_cyrillic, tidy_value, trim_span
+from .util import as_written, house_text, tidy_value, trim_span
 
 LABEL = {f: f.upper() for f in PARSED_FIELDS}
 CANONICAL = ("province", "city", "district")
@@ -42,7 +42,11 @@ def _script(ch: str) -> str:
 
 
 # проверки, которые подтверждают топоним вторым полем записи (улица в этом городе, город в этой области)
-CORROBORATE = frozenset({"ref_consistent", "street_in_city", "house_on_street"})
+CORROBORATE = frozenset({"ref_consistent", "street_in_city", "house_on_street", "city_status"})
+# город со статусом города в начале записи и дальше слово: «Жанаозен Самал 12-4» (одноимённых сёл у таких нет,
+# а «Аксай 3а 59» с номером сразу после названия это микрорайон, не город)
+_CITY_HEAD = re.compile(r"^[\s,.;:/|-]*$")
+_WORD_NEXT = re.compile(r"^[\s,]*[^\W\d_]")
 
 
 @dataclass
@@ -93,6 +97,7 @@ class Arbiter:
         self.noise_p = float(cfg.get("noise_p", 0.8))
         self.max_disputed = int(cfg.get("max_disputed", 8))
         self.hard_veto = set(cfg.get("hard_veto", ["grammar_bad", "marker_only"]))
+        self._raw = ""  # строка текущей записи (для проверок по соседству спана)
 
     def _get(self, table: dict[str, Any], f: str) -> float:
         return float(table.get(f, table.get("default", 0.0)))
@@ -126,9 +131,25 @@ class Arbiter:
         """Спаны токенов, которые модель не может забрать в поле: корпус/строение, организация, телефон, индекс,
         маркеры деталей («кв», «корп», «д.»). Иначе «Абая 5 корп 2» -> улица «Абая 5 корп», дом «2»."""
         out = []
+        city = state.fields.get("city")
         for t in state.tokens:
             lab = t.used_by or ""
-            if lab == "building" or lab.startswith("noise") or (lab.startswith("marker:") and lab != "marker:city"):
+            span = state.orig_span(t.start, t.end)
+            if (
+                lab == "admin:city"
+                and city is not None
+                and city.span is not None
+                and not (city.span[0] <= span[0] < city.span[1])
+            ):
+                # повтор города вне спана поля city («город Караганда/..., Караганда Ермекова 77/2»)
+                out.append((*span, "admin:city_dup"))
+                continue
+            # kz_dup: казахская половина двуязычной записи («Алматы облысы»), поле из неё было бы дублем
+            if (
+                lab in ("building", "kz_dup")
+                or lab.startswith("noise")
+                or (lab.startswith("marker:") and lab != "marker:city")
+            ):
                 out.append((*state.orig_span(t.start, t.end), lab))
         return out
 
@@ -165,7 +186,10 @@ class Arbiter:
                 if s >= e or s not in starts or e not in ends:
                     continue
                 # правила уверенно разобрали это как корпус, организацию, телефон или маркер детали
-                if any(gs < e and s < ge and not (f in ("street_name", "street_type") and lab == "marker:street")
+                # повтор города не даём только в улицу: «ЖК Реал Алматы» это имя ЖК с названием города
+                if any(gs < e and s < ge
+                       and not (f in ("street_name", "street_type") and lab == "marker:street")
+                       and not (lab == "admin:city_dup" and f != "street_name")
                        for gs, ge, lab in guarded):  # fmt: skip
                     continue
                 text = raw[s:e]
@@ -176,9 +200,8 @@ class Arbiter:
                     if not alts:
                         continue
                     ent = alts[0]
-                    value = ent.name
-                    if f == "district" and is_cyrillic(text) and not has_kazakh(text):
-                        value = tidy_value(text)  # Q13: русское написание района как в строке
+                    # Q13/Q22: город и район как в строке, область каноном справочника (слайд 08)
+                    value = ent.name if f == "province" else as_written(tidy_value(text), ent.name)
                 elif f == "street_type":
                     st = self.rules.street_types.get(text)
                     if st is None:
@@ -234,6 +257,13 @@ class Arbiter:
                 area = typ is not None and typ.value in AREA_TYPES
                 if st is not None and not area and self.store.streets(st.value, e.id):
                     out["street_in_city"] = w.get("street_in_city", 0.0)
+                if (
+                    e.kind in ("republican", "city")
+                    and c.span is not None
+                    and _CITY_HEAD.match(self._raw[: c.span[0]])
+                    and _WORD_NEXT.match(self._raw[c.span[1] :])
+                ):
+                    out["city_status"] = w.get("city_status", 0.0)
         elif f == "street_name":
             area = ctx.get("street_type") is not None and ctx["street_type"].value in AREA_TYPES
             cid = city_e.id if city_e else None
@@ -302,6 +332,7 @@ class Arbiter:
     def __call__(self, state: ParseState) -> ParseState:
         tr = StepTrace(step=self.name)
         pred = state.model
+        self._raw = state.raw
         if pred is None:
             tr.notes.append("нет разметки модели: поля правил без изменений")
             state.trace.append(tr)

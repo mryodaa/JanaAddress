@@ -137,9 +137,10 @@ _INVISIBLE = re.compile("[\u200b-\u200f\u2060-\u2064\ufeff\u00ad\u202a-\u202e]")
 
 
 def squash(s: str) -> str:
-    """Для проверки «значение есть в строке»: без невидимых символов, пробелов и регистра."""
+    """Для проверки «значение есть в строке»: без невидимых символов, пробелов, кавычек (литера дома «85 "А"» -> «85 А»)
+    и регистра."""
     s = unicodedata.normalize("NFC", _INVISIBLE.sub("", s))
-    return re.sub(r"\s+", "", s).lower()
+    return re.sub(r'[\s"«»“”„]+', "", s).lower()
 
 
 def check(raw: str, max_ms: float) -> list[str]:
