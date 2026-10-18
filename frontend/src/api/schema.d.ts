@@ -494,6 +494,12 @@ export interface components {
              */
             skipped: number;
             /**
+             * No Address
+             * @description записей без raw_address: не разбираются, вне сводки и очереди проверки
+             * @default 0
+             */
+            no_address: number;
+            /**
              * Review Total
              * @description записей, неуверенных по оценке разбора (вся очередь проверки)
              * @default 0
@@ -778,7 +784,10 @@ export interface operations {
     };
     get_session_api_v1_sessions__sid__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description порог неуверенности вместо сохранённого в сессии (настройка UI) */
+                threshold?: number | null;
+            };
             header?: never;
             path: {
                 sid: string;
@@ -867,6 +876,10 @@ export interface operations {
                 /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
                 bucket?: number | null;
                 skipped?: boolean | null;
+                /** @description true: только записи без raw_address, false: без них; пусто: все */
+                no_address?: boolean | null;
+                /** @description порог неуверенности вместо сохранённого в сессии (настройка UI) */
+                threshold?: number | null;
                 offset?: number;
                 limit?: number;
             };
@@ -918,6 +931,10 @@ export interface operations {
                 /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
                 bucket?: number | null;
                 skipped?: boolean | null;
+                /** @description true: только записи без raw_address, false: без них; пусто: все */
+                no_address?: boolean | null;
+                /** @description порог неуверенности вместо сохранённого в сессии (настройка UI) */
+                threshold?: number | null;
             };
             header?: never;
             path: {
@@ -1044,6 +1061,10 @@ export interface operations {
                 /** @description столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0 */
                 bucket?: number | null;
                 skipped?: boolean | null;
+                /** @description true: только записи без raw_address, false: без них; пусто: все */
+                no_address?: boolean | null;
+                /** @description порог неуверенности вместо сохранённого в сессии (настройка UI) */
+                threshold?: number | null;
                 sort?: "idx" | "confidence" | "raw" | "added";
                 dir?: "asc" | "desc";
                 /** @description province,city,... (id и raw_address всегда); пусто = все */

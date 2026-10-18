@@ -123,6 +123,12 @@ export const en: TranslationDictionary = {
   fileTooLarge: "The file is larger than {mb} MB",
   uploadProcessing: "File sent, the server is receiving the batch…",
   langAria: "Language selection",
+  settings: "Settings",
+  thresholdLabel: "Confidence threshold",
+  thresholdHint:
+    "Records below the threshold count as uncertain: they go to the review queue and are highlighted. Saved in this browser.",
+  thresholdDefault: "Default {pct}%",
+  thresholdReset: "Reset",
   err413: "The file is too large",
   err422: "Wrong format: expected JSON with a list of {id, raw_address} records",
   err409: "The batch is still being parsed: export will be available afterwards",
@@ -172,6 +178,10 @@ export const en: TranslationDictionary = {
   undone: "Undone",
   reviewProgress: "{done} of {total} reviewed",
   skippedCount: "{n} deferred",
+  filterNoAddress: "No address",
+  noAddressCount: "{n} without address",
+  noAddressNote:
+    "These records have no raw_address: they were not parsed and are left out of the summary. The export keeps them with empty fields.",
   rowSkipped: "deferred",
   kbDefer: "Defer the record",
 

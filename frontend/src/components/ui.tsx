@@ -602,7 +602,12 @@ export function Disclosure({
   );
 }
 
-const HINT_W = 288;
+const HINT_W_REM = 18;
+
+/** Ширина подсказки в px: 18rem, в полноэкранном демо корневой шрифт больше. */
+function hintWidth(): number {
+  return HINT_W_REM * (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+}
 
 /** Значок «?» с пояснением по наведению, фокусу или тапу. Пояснение в портале: не обрезается прокруткой. */
 export function Hint({
@@ -612,13 +617,14 @@ export function Hint({
 }: { text: ReactNode; label: string; className?: string }) {
   const btn = useRef<HTMLButtonElement>(null);
   const id = useId();
-  const [pos, setPos] = useState<{ x: number; y: number; above: boolean } | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; above: boolean; w: number } | null>(null);
   const show = () => {
     const r = btn.current?.getBoundingClientRect();
     if (!r) return;
-    const x = Math.min(Math.max(8, r.left + r.width / 2 - HINT_W / 2), window.innerWidth - HINT_W - 8);
+    const w = hintWidth();
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
     const above = r.top > 240;
-    setPos({ x, y: above ? r.top - 8 : r.bottom + 8, above });
+    setPos({ x, y: above ? r.top - 8 : r.bottom + 8, above, w });
   };
   const hide = () => setPos(null);
   const open = pos !== null;
@@ -662,13 +668,14 @@ export function Hint({
             style={{
               left: pos.x,
               top: pos.y,
-              width: HINT_W,
+              width: pos.w,
               transform: pos.above ? "translateY(-100%)" : undefined,
             }}
           >
             {text}
           </div>,
-          document.body,
+          // в полноэкранном режиме видно только его содержимое: подсказка рисуется внутри
+          document.fullscreenElement ?? document.body,
         )}
     </>
   );

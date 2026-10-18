@@ -5,10 +5,13 @@ import { CheckOne } from "./components/CheckOne";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { SessionView } from "./components/SessionView";
+import { Settings } from "./components/Settings";
 import { Upload } from "./components/Upload";
 import { DEMO_TEXTS } from "./components/demo/texts";
 import { Segmented, Skeleton } from "./components/ui";
 import { useI18n } from "./i18n";
+import { useDebounced } from "./lib/motion";
+import { useThresholdSetting } from "./lib/settings";
 import { confirmLeave, useBeforeUnload } from "./lib/unsaved";
 
 // демо отдельным чанком: сцена и отчёт не нужны, пока вкладку не открыли
@@ -64,11 +67,16 @@ export function App() {
     refetchInterval: (q) => (q.state.data?.status === "ok" ? 15000 : 2000),
   });
   const cfg = useQuery({ queryKey: ["config"], queryFn: api.config });
-  const threshold = cfg.data?.uncertain_threshold ?? 0.95;
+  const defaultThreshold = cfg.data?.uncertain_threshold ?? 0.95;
+  // порог из настроек; пока ползунок двигают, пакет не перезапрашиваем на каждый процент
+  const chosen = useThresholdSetting();
+  const threshold = useDebounced(chosen ?? defaultThreshold, 200);
   // тот же ключ, что в SessionView: кэш общий, лишних запросов нет
   const session = useQuery({
-    queryKey: ["session", sid],
-    queryFn: () => api.session(sid ?? ""),
+    queryKey: ["session", sid, threshold],
+    queryFn: () => api.session(sid ?? "", threshold),
+    // при смене порога значок вкладки не мигает; другого пакета данные не подставляем
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === sid ? prev : undefined),
     enabled: !!sid,
   });
 
@@ -139,6 +147,7 @@ export function App() {
           />
           <div className="ml-auto flex items-center gap-2">
             <LangSwitcher />
+            <Settings fallback={defaultThreshold} />
             {/* в рабочем состоянии статус не показываем: только загрузку и недоступность */}
             {status !== "ok" && (
               <span className="hidden h-8 animate-fade-in items-center gap-1.5 rounded-full border border-line bg-white px-3 text-xs text-ink-2 sm:inline-flex">

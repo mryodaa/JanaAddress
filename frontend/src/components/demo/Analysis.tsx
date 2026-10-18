@@ -166,7 +166,8 @@ export function Analysis({
         </div>
       </section>
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      {/* ряды карточек делятся одинаково пополам: промежутки между колонками на одной линии */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
         {/* конверт: рамка авиапочты в цветах Jana Post */}
         <Section title={tx.envelope} i={1} {...H("envelope")}>
           <div className="rounded-2xl bg-[repeating-linear-gradient(135deg,var(--color-brand-600)_0_14px,#fff_14px_22px,var(--color-warn)_22px_36px,#fff_36px_44px)] p-1.5">
@@ -174,7 +175,7 @@ export function Analysis({
               <div className="absolute top-4 right-4 grid h-20 w-16 rotate-3 place-items-center rounded-md border-2 border-dashed border-brand-600 bg-brand-50 text-center text-brand-700">
                 <div>
                   <div className="text-lg font-bold leading-none tabular-nums">{Math.round(conf * 100)}</div>
-                  <div className="text-[9px] font-semibold uppercase tracking-wide">{tx.stampUnit}</div>
+                  <div className="text-[0.5625rem] font-semibold uppercase tracking-wide">{tx.stampUnit}</div>
                 </div>
               </div>
               {lines.length ? (
@@ -246,7 +247,7 @@ export function Analysis({
                   {tx.facts.f1}: <b className="tabular-nums text-ink">{health.f1.toFixed(3)}</b>
                 </div>
               )}
-              {health.version && <div className="font-mono text-[10px] text-ink-3">{health.version}</div>}
+              {health.version && <div className="font-mono text-[0.625rem] text-ink-3">{health.version}</div>}
             </div>
             <div className="rounded-xl border border-line-soft p-3">
               <div className="mb-1 flex items-center gap-1.5 font-semibold text-ink">
@@ -289,7 +290,7 @@ export function Analysis({
                     {v ?? tx.notFound}
                   </span>
                   {v && src && (
-                    <span className="mt-0.5 block text-[11px] text-ink-3">
+                    <span className="mt-0.5 block text-[0.6875rem] text-ink-3">
                       {src === "string" && fe?.span ? (
                         <span className={`rounded px-1 ring-1 ring-inset ${FIELD_COLORS[f].mark}`}>
                           {fmt(tx.fromString, { a: fe.span[0], b: fe.span[1] })}
@@ -324,7 +325,7 @@ export function Analysis({
             {d.timings.map((s, i) => (
               <div
                 key={s.step}
-                className="grid grid-cols-[minmax(0,1fr)_100px_64px] items-center gap-3 text-xs"
+                className="grid grid-cols-[minmax(0,1fr)_6.25rem_4rem] items-center gap-3 text-xs"
               >
                 <span className="truncate text-ink-2">{stepLabels[s.step] ?? s.step}</span>
                 <span className="h-1.5 overflow-hidden rounded-full bg-line-soft">
@@ -345,12 +346,12 @@ export function Analysis({
                 {total.toFixed(1)} {t("msUnit")}
               </span>
             </div>
-            <p className="mt-1 text-[11px] text-ink-3">{tx.timingNote}</p>
+            <p className="mt-1 text-[0.6875rem] text-ink-3">{tx.timingNote}</p>
           </div>
         </Section>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-4">
           <Section title={tx.unparsedTitle} i={6} {...H("unparsed")}>
             {(r.unparsed ?? []).length ? (
@@ -396,7 +397,7 @@ export function Analysis({
                     <span
                       key={f}
                       title={fieldLabels[f]}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ring-1 ring-inset ${
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] ring-1 ring-inset ${
                         on
                           ? ref
                             ? "bg-brand-50 text-brand-800 ring-brand-200"

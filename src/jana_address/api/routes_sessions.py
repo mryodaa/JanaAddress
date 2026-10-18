@@ -27,6 +27,7 @@ class Summary(BaseModel):
     edited: int = Field(description="записей, где оператор исправил хотя бы одно поле")
     to_review: int = Field(description="очередь проверки: неуверенные, не проверенные, не исправленные, не отложенные")
     skipped: int = Field(0, description="отложенных оператором")
+    no_address: int = Field(0, description="записей без raw_address: не разбираются, вне сводки и очереди проверки")
     review_total: int = Field(0, description="записей, неуверенных по оценке разбора (вся очередь проверки)")
     review_done: int = Field(0, description="из них уже подтверждено или исправлено")
     mean_confidence: float | None
@@ -102,6 +103,11 @@ async def create_session(request: Request, name: str = Query("upload.json")) -> 
     records, container = parse_payload(await read_payload(request))
     if not records:
         raise HTTPException(422, "в файле нет записей")
+    # ни одного адреса (не тот файл или другие ключи): пакет из одних пустых записей нечего разбирать и проверять
+    if not any(isinstance(r.get("raw_address"), str) and r["raw_address"].strip() for r in records):
+        keys = sorted({str(k) for r in records[:100] for k in r if r.get(k) is not None} - {"id", "raw_address"})
+        found = f" (есть ключи: {', '.join(keys[:8])})" if keys else ""
+        raise HTTPException(422, f"ни в одной записи нет raw_address{found}")
     sid = sessions.create(records, container, name)
     return SessionCreated(id=sid, total=len(records))
 
@@ -111,14 +117,20 @@ def list_sessions() -> list[dict[str, Any]]:
     return sessions.list_sessions()
 
 
+# порог неуверенности из настроек UI: у каждого зрителя свой, поэтому параметром запроса, а не в базе
+THRESHOLD_QUERY = Query(
+    None, ge=0.0, le=1.0, description="порог неуверенности вместо сохранённого в сессии (настройка UI)"
+)
+
+
 @router.get(
     "/sessions/{sid}",
     summary="Прогресс и сводка: распределение confidence, неуверенные, заполненность",
     response_model=SessionInfo,
     responses={404: {"description": "сессия не найдена"}},
 )
-def get_session(sid: str) -> dict[str, Any]:
-    s = sessions.get_session(sid)
+def get_session(sid: str, threshold: float | None = THRESHOLD_QUERY) -> dict[str, Any]:
+    s = sessions.get_session(sid, threshold)
     if s is None:
         raise HTTPException(404, "сессия не найдена")
     return s
@@ -128,6 +140,7 @@ SortParam = Literal["idx", "confidence", "raw", "added"]
 BUCKET_QUERY = Query(
     None, ge=0, le=9, description="столбец гистограммы сводки: уверенность [b/10, (b+1)/10), у 9 включая 1.0"
 )
+NO_ADDRESS_QUERY = Query(None, description="true: только записи без raw_address, false: без них; пусто: все")
 DirParam = Literal["asc", "desc"]
 
 
@@ -152,11 +165,15 @@ def list_records(
     dir: DirParam = "asc",
     bucket: int | None = BUCKET_QUERY,
     skipped: bool | None = None,
+    no_address: bool | None = NO_ADDRESS_QUERY,
+    threshold: float | None = THRESHOLD_QUERY,
     offset: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=sessions.PAGE_MAX),
 ) -> dict[str, Any]:
     _require(sid)
-    return sessions.list_records(sid, uncertain, reviewed, q, offset, limit, edited, sort, dir, bucket, skipped)
+    return sessions.list_records(
+        sid, uncertain, reviewed, q, offset, limit, edited, sort, dir, bucket, skipped, no_address, threshold
+    )
 
 
 @router.get(
@@ -176,9 +193,14 @@ def record_position(
     dir: DirParam = "asc",
     bucket: int | None = BUCKET_QUERY,
     skipped: bool | None = None,
+    no_address: bool | None = NO_ADDRESS_QUERY,
+    threshold: float | None = THRESHOLD_QUERY,
 ) -> dict[str, Any]:
     _require(sid)
-    return {"position": sessions.record_position(sid, idx, uncertain, reviewed, q, edited, sort, dir, bucket, skipped)}
+    pos = sessions.record_position(
+        sid, idx, uncertain, reviewed, q, edited, sort, dir, bucket, skipped, no_address, threshold
+    )
+    return {"position": pos}
 
 
 @router.get(
@@ -244,6 +266,8 @@ def export(
     q: str = "",
     bucket: int | None = BUCKET_QUERY,
     skipped: bool | None = None,
+    no_address: bool | None = NO_ADDRESS_QUERY,
+    threshold: float | None = THRESHOLD_QUERY,
     sort: SortParam = "idx",
     dir: DirParam = "asc",
     fields: str | None = Query(None, description="province,city,... (id и raw_address всегда); пусто = все"),
@@ -264,6 +288,8 @@ def export(
         q=q,
         bucket=bucket,
         skipped=skipped,
+        no_address=no_address,
+        threshold=threshold,
         sort=sort,
         direction=dir,
         fields=chosen,

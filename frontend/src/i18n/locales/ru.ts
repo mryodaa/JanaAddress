@@ -123,6 +123,12 @@ export const ru: TranslationDictionary = {
   fileTooLarge: "Файл больше {mb} МБ",
   uploadProcessing: "Файл отправлен, сервер принимает пакет…",
   langAria: "Выбор языка",
+  settings: "Настройки",
+  thresholdLabel: "Порог уверенности",
+  thresholdHint:
+    "Записи с уверенностью ниже порога считаются неуверенными: попадают в очередь проверки и подсвечиваются. Настройка хранится в этом браузере.",
+  thresholdDefault: "По умолчанию {pct}%",
+  thresholdReset: "Сбросить",
   err413: "Файл слишком большой",
   err422: "Неверный формат: нужен JSON со списком записей {id, raw_address}",
   err409: "Пакет ещё разбирается: экспорт будет доступен после разбора",
@@ -172,6 +178,10 @@ export const ru: TranslationDictionary = {
   undone: "Отменено",
   reviewProgress: "проверено {done} из {total}",
   skippedCount: "отложено {n}",
+  filterNoAddress: "Без адреса",
+  noAddressCount: "без адреса {n}",
+  noAddressNote:
+    "У этих записей нет raw_address: они не разбирались и не входят в сводку. В экспорте остаются с пустыми полями.",
   rowSkipped: "отложено",
   kbDefer: "Отложить запись",
 

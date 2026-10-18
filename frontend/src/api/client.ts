@@ -43,6 +43,10 @@ export interface ListParams {
   bucket?: number | null;
   /** отложенные оператором: true только они, false без них */
   skipped?: boolean;
+  /** записи без raw_address: true только они, false без них */
+  noAddress?: boolean;
+  /** порог неуверенности из настроек вместо сохранённого в сессии */
+  threshold?: number;
 }
 
 /** Изменение записи: поля (null = очистить) и статус проверки. */
@@ -107,6 +111,8 @@ function listQuery(params: ListParams): URLSearchParams {
   if (params.dir && params.dir !== "asc") qs.set("dir", params.dir);
   if (params.bucket != null) qs.set("bucket", String(params.bucket));
   if (params.skipped !== undefined) qs.set("skipped", String(params.skipped));
+  if (params.noAddress !== undefined) qs.set("no_address", String(params.noAddress));
+  if (params.threshold !== undefined) qs.set("threshold", String(params.threshold));
   return qs;
 }
 
@@ -120,7 +126,8 @@ export const api = {
       body: JSON.stringify({ raw_address }),
     }),
   sessions: () => request<SessionBrief[]>("/api/v1/sessions"),
-  session: (id: string) => request<SessionInfo>(`/api/v1/sessions/${id}`),
+  session: (id: string, threshold?: number) =>
+    request<SessionInfo>(`/api/v1/sessions/${id}${threshold !== undefined ? `?threshold=${threshold}` : ""}`),
   /** Страница списка: offset/limit по серверу, порядок и фильтры тоже на сервере. */
   records: (id: string, params: ListParams, offset: number, limit: number) => {
     const qs = listQuery(params);

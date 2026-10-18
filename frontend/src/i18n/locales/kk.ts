@@ -123,6 +123,12 @@ export const kk: TranslationDictionary = {
   fileTooLarge: "Файл {mb} МБ-тан үлкен",
   uploadProcessing: "Файл жіберілді, сервер пакетті қабылдап жатыр…",
   langAria: "Тілді таңдау",
+  settings: "Баптаулар",
+  thresholdLabel: "Сенімділік шегі",
+  thresholdHint:
+    "Сенімділігі шектен төмен жазбалар сенімсіз саналады: тексеру кезегіне түседі және бөлектеледі. Баптау осы браузерде сақталады.",
+  thresholdDefault: "Әдепкі {pct}%",
+  thresholdReset: "Қалпына келтіру",
   err413: "Файл тым үлкен",
   err422: "Формат қате: {id, raw_address} жазбалар тізімі бар JSON керек",
   err409: "Пакет әлі талдануда: экспорт талдаудан кейін қолжетімді болады",
@@ -172,6 +178,10 @@ export const kk: TranslationDictionary = {
   undone: "Болдырылмады",
   reviewProgress: "{total} ішінен {done} тексерілді",
   skippedCount: "кейінге қалдырылған {n}",
+  filterNoAddress: "Мекенжайсыз",
+  noAddressCount: "мекенжайсыз {n}",
+  noAddressNote:
+    "Бұл жазбаларда raw_address жоқ: олар талданбады және жиынтыққа кірмейді. Экспортта бос өрістермен қалады.",
   rowSkipped: "кейінге қалдырылды",
   kbDefer: "Жазбаны кейінге қалдыру",
 

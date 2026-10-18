@@ -35,8 +35,8 @@ import {
   useFocusTrap,
 } from "./ui";
 
-export type Filter = "all" | "uncertain" | "skipped" | "reviewed" | "edited";
-const FILTERS: Filter[] = ["all", "uncertain", "skipped", "reviewed", "edited"];
+export type Filter = "all" | "uncertain" | "skipped" | "reviewed" | "edited" | "noaddr";
+const FILTERS: Filter[] = ["all", "uncertain", "skipped", "reviewed", "edited", "noaddr"];
 
 type ActionKind = "confirm" | "defer" | "unconfirm" | "return" | "undo";
 interface RecordAction {
@@ -61,13 +61,15 @@ const SORT_KEYS: SortKey[] = ["idx", "confidence", "raw", "added"];
 
 // «неуверенные» = очередь проверки: ниже порога, не подтверждены и не отложены;
 // «отложенные» = оператор решил вернуться позже; «проверенные» = подтверждены (с правками или без);
-// «исправленные» = оператор поменял хотя бы одно поле
+// «исправленные» = оператор поменял хотя бы одно поле; записи без raw_address разбирать нечего:
+// они только в своей вкладке, в остальных списках их нет (как и в сводке)
 function filterParams(f: Filter): ListParams {
-  if (f === "uncertain") return { uncertain: true, reviewed: false, skipped: false };
-  if (f === "skipped") return { skipped: true };
-  if (f === "reviewed") return { reviewed: true };
-  if (f === "edited") return { edited: true };
-  return {};
+  if (f === "noaddr") return { noAddress: true };
+  if (f === "uncertain") return { uncertain: true, reviewed: false, skipped: false, noAddress: false };
+  if (f === "skipped") return { skipped: true, noAddress: false };
+  if (f === "reviewed") return { reviewed: true, noAddress: false };
+  if (f === "edited") return { edited: true, noAddress: false };
+  return { noAddress: false };
 }
 
 /** Фильтр, поиск и сортировка живут в адресе: перезагрузка страницы и ссылка возвращают тот же список. */
@@ -96,7 +98,7 @@ interface Selection {
 
 export function SessionView({
   sid,
-  threshold: fallbackThreshold,
+  threshold: askedThreshold,
   active,
   onBack,
 }: { sid: string; threshold: number; active: boolean; onBack: () => void }) {
@@ -123,23 +125,26 @@ export function SessionView({
   const isLg = useMedia("(min-width: 768px)");
 
   const session = useQuery({
-    queryKey: ["session", sid],
-    queryFn: () => api.session(sid),
+    // порог из настроек: сводка и «неуверенные» считаются по нему (у старых сессий сервер оставляет свой)
+    queryKey: ["session", sid, askedThreshold],
+    queryFn: () => api.session(sid, askedThreshold),
+    // смена порога не прячет сводку за скелетоном: старые числа до прихода новых
+    placeholderData: (prev) => prev,
     refetchInterval: (query) => (query.state.data?.status === "processing" ? 500 : false),
     // 404 не повторяем: пакет удалён; сетевые сбои повторяем, прежние данные остаются на экране
     retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 3,
   });
   const done = !!session.data && session.data.status !== "processing";
-  const threshold = session.data?.summary.threshold ?? fallbackThreshold;
+  const threshold = session.data?.summary.threshold ?? askedThreshold;
 
   // ---------- список страницами ----------
   const params: ListParams = useMemo(
-    () => ({ ...filterParams(filter), q, sort: sort.key, dir: sort.dir, bucket }),
-    [filter, q, sort, bucket],
+    () => ({ ...filterParams(filter), q, sort: sort.key, dir: sort.dir, bucket, threshold: askedThreshold }),
+    [filter, q, sort, bucket, askedThreshold],
   );
   const listKey = useMemo(
-    () => ["records", sid, filter, q, sort.key, sort.dir, bucket] as const,
-    [sid, filter, q, sort, bucket],
+    () => ["records", sid, filter, q, sort.key, sort.dir, bucket, askedThreshold] as const,
+    [sid, filter, q, sort, bucket, askedThreshold],
   );
   const fetchPage = useCallback((p: number) => api.records(sid, params, p * PAGE, PAGE), [sid, params]);
   const [range, setRange] = useState<[number, number]>([0, 0]);
@@ -516,6 +521,10 @@ export function SessionView({
             { value: "skipped", label: t("filterSkipped"), badge: s.summary.skipped ?? 0 },
             { value: "reviewed", label: t("filterReviewed"), badge: s.summary.reviewed, badgeTone: "brand" },
             { value: "edited", label: t("filterEdited"), badge: s.summary.edited, badgeTone: "brand" },
+            // вкладка только когда такие записи есть (или уже открыта по ссылке)
+            ...((s.summary.no_address ?? 0) > 0 || filter === "noaddr"
+              ? [{ value: "noaddr" as const, label: t("filterNoAddress"), badge: s.summary.no_address ?? 0 }]
+              : []),
           ]}
         />
         {bucket != null && (
@@ -573,6 +582,12 @@ export function SessionView({
           <Button size="sm" variant="ghost" onClick={() => void qc.refetchQueries({ queryKey: listKey })}>
             {t("retry")}
           </Button>
+        </div>
+      )}
+      {filter === "noaddr" && (
+        <div className="flex animate-fade-up items-center gap-2 rounded-xl bg-warn-50 px-3 py-2 text-sm text-warn-800">
+          <IconAlert className="h-4 w-4 shrink-0" />
+          {t("noAddressNote")}
         </div>
       )}
       <div
@@ -672,6 +687,7 @@ export function SessionView({
                           skipped: t("filterSkipped"),
                           reviewed: t("filterReviewed"),
                           edited: t("filterEdited"),
+                          noaddr: t("filterNoAddress"),
                         }[filter],
                       ]
                     : []),

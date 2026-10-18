@@ -39,11 +39,15 @@ def test_session_flow(client: TestClient) -> None:
     sid, total = r.json()["id"], r.json()["total"]
     s = wait_done(client, sid)
     assert s["status"] == "done" and s["processed"] == total
-    assert sum(s["summary"]["histogram"]) == total
+    # запись с пустым raw_address (t_012) не разбирается: вне сводки, в своём фильтре
+    assert s["summary"]["no_address"] == 1
+    assert sum(s["summary"]["histogram"]) == total - 1
+    blank = client.get(f"/api/v1/sessions/{sid}/records?no_address=true").json()
+    assert blank["total"] == 1 and blank["items"][0]["record"]["id"] == "t_012"
 
     items = client.get(f"/api/v1/sessions/{sid}/records").json()["items"]
     assert len(items) == total and items[0]["fields"]
-    unc = client.get(f"/api/v1/sessions/{sid}/records?uncertain=true").json()["total"]
+    unc = client.get(f"/api/v1/sessions/{sid}/records?uncertain=true&no_address=false").json()["total"]
     assert unc == s["summary"]["uncertain"]
     assert client.get(f"/api/v1/sessions/{sid}/records?q=Курильская").json()["total"] == 1
 
@@ -54,10 +58,10 @@ def test_session_flow(client: TestClient) -> None:
     body = p.json()
     assert body["reviewed"] and body["record"]["house"] == "9А" and body["fields"]["house"]["source"] == "manual"
     summ = client.get(f"/api/v1/sessions/{sid}").json()["summary"]
-    assert summ["confident"] + summ["uncertain"] == total and summ["edited"] == 1
+    assert summ["confident"] + summ["uncertain"] == total - 1 and summ["edited"] == 1
     assert sum(summ["histogram_uncertain"]) == summ["uncertain"]
     # значок на вкладке = длина списка «неуверенные», убывает по мере проверки
-    todo = client.get(f"/api/v1/sessions/{sid}/records?uncertain=true&reviewed=false").json()["total"]
+    todo = client.get(f"/api/v1/sessions/{sid}/records?uncertain=true&reviewed=false&no_address=false").json()["total"]
     assert summ["to_review"] == todo
     fixed = client.get(f"/api/v1/sessions/{sid}/records?edited=true").json()
     assert fixed["total"] == 1 and fixed["items"][0]["idx"] == 2
@@ -68,6 +72,29 @@ def test_session_flow(client: TestClient) -> None:
     assert [o["id"] for o in out] == [i["id"] for i in json.loads(raw)]
     assert all(tuple(o) == OUTPUT_KEYS for o in out)
     assert out[2]["house"] == "9А"
+
+
+def test_threshold_override(client: TestClient) -> None:
+    # порог из настроек UI: сводка и фильтр «неуверенные» считаются по нему, сохранённый в сессии не меняется
+    raw = (FIX / "sample_input.json").read_bytes()
+    sid = client.post("/api/v1/sessions", files={"file": ("s.json", raw, "application/json")}).json()["id"]
+    base = wait_done(client, sid)["summary"]
+    low = client.get(f"/api/v1/sessions/{sid}?threshold=0").json()["summary"]
+    high = client.get(f"/api/v1/sessions/{sid}?threshold=1").json()["summary"]
+    assert low["threshold"] == 0 and low["uncertain"] == 0
+    assert high["uncertain"] >= base["uncertain"] >= low["uncertain"]
+    unc = client.get(f"/api/v1/sessions/{sid}/records?uncertain=true&no_address=false&threshold=1").json()["total"]
+    assert unc == high["uncertain"]
+    assert client.get(f"/api/v1/sessions/{sid}").json()["summary"]["threshold"] == base["threshold"]
+    assert client.get(f"/api/v1/sessions/{sid}?threshold=1.5").status_code == 422
+
+
+def test_upload_without_addresses_rejected(client: TestClient) -> None:
+    # не тот файл: записи есть, адресов нет ни в одной; пакет из пустых записей не создаётся
+    r = client.post("/api/v1/sessions", json=[{"id": "1", "address": "ул Абая 10"}, {"id": "2", "raw_address": " "}])
+    assert r.status_code == 422
+    assert "raw_address" in r.json()["detail"] and "address" in r.json()["detail"]
+    assert client.get("/api/v1/sessions").json() == []
 
 
 def test_patch_back_to_parsed_value_removes_edit(client: TestClient) -> None:

@@ -278,6 +278,26 @@
        "type": "string",
        "title": "Sid"
       }
+     },
+     {
+      "name": "threshold",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number",
+         "maximum": 1.0,
+         "minimum": 0.0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)",
+       "title": "Threshold"
+      },
+      "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)"
      }
     ],
     "responses": {
@@ -492,6 +512,44 @@
       }
      },
      {
+      "name": "no_address",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "true: только записи без raw_address, false: без них; пусто: все",
+       "title": "No Address"
+      },
+      "description": "true: только записи без raw_address, false: без них; пусто: все"
+     },
+     {
+      "name": "threshold",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number",
+         "maximum": 1.0,
+         "minimum": 0.0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)",
+       "title": "Threshold"
+      },
+      "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)"
+     },
+     {
       "name": "offset",
       "in": "query",
       "required": false,
@@ -685,6 +743,44 @@
        ],
        "title": "Skipped"
       }
+     },
+     {
+      "name": "no_address",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "true: только записи без raw_address, false: без них; пусто: все",
+       "title": "No Address"
+      },
+      "description": "true: только записи без raw_address, false: без них; пусто: все"
+     },
+     {
+      "name": "threshold",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number",
+         "maximum": 1.0,
+         "minimum": 0.0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)",
+       "title": "Threshold"
+      },
+      "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)"
      }
     ],
     "responses": {
@@ -928,6 +1024,44 @@
        ],
        "title": "Skipped"
       }
+     },
+     {
+      "name": "no_address",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "true: только записи без raw_address, false: без них; пусто: все",
+       "title": "No Address"
+      },
+      "description": "true: только записи без raw_address, false: без них; пусто: все"
+     },
+     {
+      "name": "threshold",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number",
+         "maximum": 1.0,
+         "minimum": 0.0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)",
+       "title": "Threshold"
+      },
+      "description": "порог неуверенности вместо сохранённого в сессии (настройка UI)"
      },
      {
       "name": "sort",
@@ -1969,6 +2103,12 @@
       "type": "integer",
       "title": "Skipped",
       "description": "отложенных оператором",
+      "default": 0
+     },
+     "no_address": {
+      "type": "integer",
+      "title": "No Address",
+      "description": "записей без raw_address: не разбираются, вне сводки и очереди проверки",
       "default": 0
      },
      "review_total": {

@@ -57,6 +57,9 @@ UNCERTAIN_SQL = "(confidence IS NULL OR confidence < ?) AND edited IS NULL"
 EFFECTIVE_SQL = "CASE WHEN edited IS NOT NULL OR reviewed = 1 THEN 1.0 ELSE confidence END"
 # корзина гистограммы сводки (0..9 по 10%): фильтр «столбец графика» берёт ровно те записи, что в нём посчитаны
 BUCKET_SQL = f"min(9, CAST(coalesce({EFFECTIVE_SQL}, 0) * 10 AS INTEGER))"
+# запись без адреса (raw_address нет, не строка или пустой): разбирать нечего, в сводку и очередь проверки не идёт,
+# в UI своя вкладка; raw_key пишется вместе с записью и пуст ровно тогда
+NO_ADDR_SQL = "raw_key = ''"
 # порядок списка: то же, что видно в таблице (у исправленной записи confidence 1.0, как в экспорте)
 SortKey = Literal["idx", "confidence", "raw", "added"]
 SORT_SQL: dict[str, str] = {
@@ -320,13 +323,13 @@ def merged(rec: dict[str, Any], parsed: dict[str, Any] | None, edited: dict[str,
     return out
 
 
-def get_session(sid: str) -> dict[str, Any] | None:
+def get_session(sid: str, threshold: float | None = None) -> dict[str, Any] | None:
     with connect() as con:
         s = con.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
         if s is None:
             return None
-        th = _threshold(s)
-        base = "FROM records WHERE session_id = ? AND parsed IS NOT NULL"
+        th = _threshold(s, threshold)
+        base = f"FROM records WHERE session_id = ? AND parsed IS NOT NULL AND NOT {NO_ADDR_SQL}"
         n, uncertain, mean = con.execute(
             f"SELECT count(*), coalesce(sum(({EFFECTIVE_SQL}) < ?), 0), avg({EFFECTIVE_SQL}) {base}", (th, sid)
         ).fetchone()
@@ -338,10 +341,14 @@ def get_session(sid: str) -> dict[str, Any] | None:
         ).fetchone()[0]
         # тот же предикат, что у фильтра «неуверенные» в UI (uncertain + reviewed=false + skipped=false)
         to_review = con.execute(
-            f"SELECT count(*) FROM records WHERE session_id = ? AND {UNCERTAIN_SQL} AND reviewed = 0 AND skipped = 0",
+            f"SELECT count(*) FROM records WHERE session_id = ? AND {UNCERTAIN_SQL} AND reviewed = 0 AND skipped = 0"
+            f" AND NOT {NO_ADDR_SQL}",
             (sid, th),
         ).fetchone()[0]
         skipped = con.execute("SELECT count(*) FROM records WHERE session_id = ? AND skipped = 1", (sid,)).fetchone()[0]
+        no_address = con.execute(
+            f"SELECT count(*) FROM records WHERE session_id = ? AND {NO_ADDR_SQL}", (sid,)
+        ).fetchone()[0]
         # прогресс проверки: сколько из изначально неуверенных (по оценке разбора) оператор уже прошёл
         review_total, review_done = con.execute(
             f"SELECT count(*), coalesce(sum(reviewed = 1 OR edited IS NOT NULL), 0) {base} AND confidence < ?",
@@ -379,6 +386,7 @@ def get_session(sid: str) -> dict[str, Any] | None:
             "edited": edited,
             "to_review": to_review,
             "skipped": skipped,
+            "no_address": no_address,
             "review_total": review_total,
             "review_done": review_done,
             "mean_confidence": round(mean, 3) if mean is not None else None,
@@ -398,8 +406,13 @@ def list_sessions() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def _threshold(s: sqlite3.Row) -> float:
-    return float(s["threshold"]) if s["threshold"] is not None else LEGACY_THRESHOLD
+def _threshold(s: sqlite3.Row, override: float | None = None) -> float:
+    """Порог сессии; override — порог из настроек UI (у каждого зрителя свой, в базе не хранится). Сессии старой
+    линейной модели его не принимают: шкалы разные, 0.95 там значил бы почти всё."""
+    stored = float(s["threshold"]) if s["threshold"] is not None else LEGACY_THRESHOLD
+    if override is None or stored == LEGACY_THRESHOLD:
+        return stored
+    return override
 
 
 def session_exists(sid: str) -> bool:
@@ -407,9 +420,9 @@ def session_exists(sid: str) -> bool:
         return con.execute("SELECT 1 FROM sessions WHERE id = ?", (sid,)).fetchone() is not None
 
 
-def _session_threshold(con: sqlite3.Connection, sid: str) -> float:
+def _session_threshold(con: sqlite3.Connection, sid: str, override: float | None = None) -> float:
     s = con.execute("SELECT threshold FROM sessions WHERE id = ?", (sid,)).fetchone()
-    return _threshold(s) if s else config.UNCERTAIN_THRESHOLD
+    return _threshold(s, override) if s else (override if override is not None else config.UNCERTAIN_THRESHOLD)
 
 
 def _like(q: str) -> str:
@@ -426,12 +439,14 @@ def _where(
     edited: bool | None,
     bucket: int | None = None,
     skipped: bool | None = None,
+    no_address: bool | None = None,
+    threshold: float | None = None,
 ) -> tuple[str, list[Any]]:
     where: list[str] = ["session_id = ?"]
     args: list[Any] = [sid]
     if uncertain:
         where.append(UNCERTAIN_SQL)
-        args.append(_session_threshold(con, sid))
+        args.append(_session_threshold(con, sid, threshold))
     if reviewed is not None:
         where.append("reviewed = ?")
         args.append(int(reviewed))
@@ -446,6 +461,8 @@ def _where(
     if skipped is not None:
         where.append("skipped = ?")
         args.append(int(skipped))
+    if no_address is not None:
+        where.append(NO_ADDR_SQL if no_address else f"NOT {NO_ADDR_SQL}")
     return " AND ".join(where), args
 
 
@@ -466,9 +483,11 @@ def list_records(
     direction: str = "asc",
     bucket: int | None = None,
     skipped: bool | None = None,
+    no_address: bool | None = None,
+    threshold: float | None = None,
 ) -> dict[str, Any]:
     with connect() as con:
-        sql, args = _where(con, sid, uncertain, reviewed, q, edited, bucket, skipped)
+        sql, args = _where(con, sid, uncertain, reviewed, q, edited, bucket, skipped, no_address, threshold)
         total = con.execute(f"SELECT count(*) FROM records WHERE {sql}", args).fetchone()[0]
         # сначала только номера страницы: сортировать строки целиком (rec/parsed с trace) на большом смещении
         # в разы дольше, чем короткие ключи; потом сами строки по номерам
@@ -499,10 +518,12 @@ def record_position(
     direction: str = "asc",
     bucket: int | None = None,
     skipped: bool | None = None,
+    no_address: bool | None = None,
+    threshold: float | None = None,
 ) -> int | None:
     """Место записи в списке с этими фильтрами и порядком: UI держит выбор при смене сортировки."""
     with connect() as con:
-        sql, args = _where(con, sid, uncertain, reviewed, q, edited, bucket, skipped)
+        sql, args = _where(con, sid, uncertain, reviewed, q, edited, bucket, skipped, no_address, threshold)
         rows = con.execute(f"SELECT idx FROM records WHERE {sql} ORDER BY {_order(sort, direction)}", args)
         for pos, (i,) in enumerate(rows):
             if i == idx:
@@ -576,6 +597,8 @@ class ExportOptions:
     q: str = ""
     bucket: int | None = None
     skipped: bool | None = None
+    no_address: bool | None = None
+    threshold: float | None = None  # порог для фильтра «неуверенные» из настроек UI
     sort: str = "idx"
     direction: str = "asc"
     fields: list[str] | None = None  # поля ответа (без id/raw_address), None = все + confidence
@@ -591,6 +614,7 @@ class ExportOptions:
             or bool(self.q.strip())
             or (self.bucket is not None)
             or self.skipped is not None
+            or self.no_address is not None
         )
 
 
@@ -606,7 +630,9 @@ def export(sid: str, opts: ExportOptions | None = None) -> str | None:
             return None
         if s["status"] == "processing":
             raise NotReady(sid)
-        sql, args = _where(con, sid, o.uncertain, o.reviewed, o.q, o.edited, o.bucket, o.skipped)
+        sql, args = _where(
+            con, sid, o.uncertain, o.reviewed, o.q, o.edited, o.bucket, o.skipped, o.no_address, o.threshold
+        )
         out: list[dict[str, Any]] = []
         for r in con.execute(
             f"SELECT rec, parsed, edited FROM records WHERE {sql} ORDER BY {_order(o.sort, o.direction)}", args

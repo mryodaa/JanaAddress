@@ -1,12 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ExplainRecord, api } from "../../api/client";
 import { useI18n } from "../../i18n";
 import { errorText } from "../../lib/errors";
 import { visible } from "../../lib/fields";
 import { isModalOpen, typingIn, useWindowKey } from "../../lib/keys";
 import { prefersReducedMotion } from "../../lib/motion";
-import { IconAlert, IconCheck, IconChevronRight } from "../icons";
+import { IconAlert, IconCheck, IconChevronRight, IconCollapse, IconExpand } from "../icons";
 import { Button, TextInput } from "../ui";
 import { Analysis } from "./Analysis";
 import { type HealthInfo, StageView } from "./Theater";
@@ -107,6 +107,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
     });
   const top = useRef<HTMLDivElement>(null);
   const nav = useRef<HTMLElement>(null);
+  const [full, toggleFull] = useFullscreen(top);
   // 10 этапов не помещаются в строку: текущий этап всегда виден, навигация прокручивается к нему сама
   // (только по горизонтали, страница не дёргается)
   // biome-ignore lint/correctness/useExhaustiveDependencies: phase нужен, навигация появляется только при показе
@@ -231,9 +232,27 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
       } else if (e.key === "a" || e.key === "ф") toggleAuto();
       else if (e.key === "ArrowRight") goStage(stage + 1);
       else if (e.key === "ArrowLeft") goStage(stage - 1);
-      else if (e.key === "Escape") finish();
+      // Esc в полноэкранном режиме закрывает его (это делает браузер), а не показ
+      else if (e.key === "Escape" && !document.fullscreenElement) finish();
     },
     active && phase === "play",
+  );
+  // F: на весь экран и обратно, на всех фазах демо
+  useWindowKey((e) => {
+    if (!toggleFull || typingIn(e) || isModalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "f" || e.key === "F" || e.key === "а" || e.key === "А") toggleFull();
+  }, active);
+  const fullBtn = toggleFull && (
+    <button
+      type="button"
+      onClick={toggleFull}
+      title={full ? tx.exitFullscreen : tx.fullscreen}
+      aria-label={full ? tx.exitFullscreen : tx.fullscreen}
+      aria-pressed={full}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-2 transition hover:bg-canvas hover:text-ink active:scale-90"
+    >
+      {full ? <IconCollapse className="h-4 w-4" /> : <IconExpand className="h-4 w-4" />}
+    </button>
   );
 
   const progress = (stage + Math.min(1, tick / Math.max(1, maxTick))) / STAGES.length;
@@ -242,7 +261,12 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
   return (
     <div
       ref={top}
-      className="mx-auto grid max-w-6xl scroll-mt-4 grid-cols-[minmax(0,1fr)] gap-5 pt-2 sm:pt-4"
+      // на весь экран: фон страницы и своя прокрутка (отчёт длиннее экрана), сцена во всю высоту
+      className={`mx-auto grid grid-cols-[minmax(0,1fr)] gap-5 ${
+        full
+          ? "h-full max-w-none content-start overflow-y-auto bg-canvas p-3 sm:p-5"
+          : "max-w-6xl scroll-mt-4 pt-2 sm:pt-4"
+      }`}
     >
       {/* ввод: только до запуска, дальше на его месте сцена */}
       {(phase === "idle" || !d) && (
@@ -308,17 +332,21 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
 
       {/* сцена */}
       {d && phase === "play" && (
-        <section className="animate-fade-up overflow-hidden rounded-[24px] border border-line bg-white shadow-sm">
-          <div className="h-1 bg-line-soft">
+        <section
+          className={`animate-fade-up overflow-hidden rounded-[24px] border border-line bg-white shadow-sm ${
+            full ? "flex h-[calc(100dvh-1.5rem)] flex-col sm:h-[calc(100dvh-2.5rem)]" : ""
+          }`}
+        >
+          <div className="h-1 shrink-0 bg-line-soft">
             <div
               className="h-full bg-brand-500 transition-[width] duration-500 ease-[var(--ease-out-soft)]"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
-          <AddressBar raw={d.raw} label={tx.another} onBack={reset} />
+          <AddressBar raw={d.raw} label={tx.another} onBack={reset} extra={fullBtn} />
           <nav
             ref={nav}
-            className="flex gap-1 overflow-x-auto border-t border-line-soft px-3 py-3 [scrollbar-width:none] sm:px-5"
+            className="flex shrink-0 gap-1 overflow-x-auto border-t border-line-soft px-3 py-3 [scrollbar-width:none] sm:px-5"
           >
             {STAGES.map((s, i) => {
               const done = i < stage;
@@ -338,7 +366,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
                   }`}
                 >
                   <span
-                    className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold ${
+                    className={`grid h-5 w-5 place-items-center rounded-full text-[0.625rem] font-bold ${
                       cur ? "bg-white text-brand-700" : done ? "bg-brand-100 text-brand-800" : "bg-line-soft"
                     }`}
                   >
@@ -351,35 +379,59 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
           </nav>
 
           {/* высота сцены фиксирована на всех этапах: длинное содержимое прокручивается внутри */}
-          <div className="grid gap-6 border-t border-line-soft p-5 sm:p-7 lg:h-[34rem] lg:grid-cols-[300px_minmax(0,1fr)]">
-            <div key={`info-${id}`} className="order-2 animate-fade-up overflow-y-auto lg:order-none">
+          <div
+            className={`grid gap-6 border-t border-line-soft p-5 sm:p-7 lg:grid-cols-[23rem_minmax(0,1fr)] ${
+              full ? "min-h-0 flex-1 overflow-y-auto lg:overflow-visible" : "lg:h-[34rem]"
+            }`}
+          >
+            <FitBox
+              key={`info-${id}`}
+              fitKey={`${id}|${language}|${full}`}
+              className="order-2 animate-fade-up lg:order-none"
+            >
               <div className="text-xs font-semibold uppercase tracking-wider text-brand-700">
                 {fmt(tx.stageOf, { n: stage + 1, total: STAGES.length })}
               </div>
               <h2 className="mt-1 text-3xl font-semibold tracking-tight">{st.title}</h2>
               <p className="mt-3 text-sm leading-relaxed text-ink-2">{st.lead}</p>
-              <div className="mt-5 rounded-2xl bg-canvas p-4 ring-1 ring-line-soft">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
-                  {tx.tool}
-                </div>
+              <div className="mt-4 rounded-2xl bg-canvas p-4 ring-1 ring-line-soft">
                 <div className="flex items-center gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700">
                     <StageIcon id={id} />
                   </span>
-                  <span className="font-semibold">{st.tool}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">
+                      {tx.tool}
+                    </span>
+                    <span className="block font-semibold leading-snug">{st.tool}</span>
+                  </span>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-ink-3">{st.toolDetail}</p>
+                <div className="mt-3 border-t border-line-soft pt-3">
+                  <div className="mb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">
+                    {tx.toolHow}
+                  </div>
+                  <ul className="grid gap-1.5">
+                    {st.toolPoints.map((p) => (
+                      <li key={p} className="flex gap-2 text-xs leading-snug text-ink-2">
+                        <span className="mt-[0.35rem] h-1 w-1 shrink-0 rounded-full bg-brand-500" />
+                        <span>{fmt(p, { th: Math.round(threshold * 100) })}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
-            </div>
+            </FitBox>
             <div
               key={`stage-${id}`}
-              className="h-[28rem] min-w-0 animate-fade-in overflow-y-auto rounded-2xl bg-white p-5 ring-1 ring-line [scrollbar-width:thin] sm:p-6 lg:h-full"
+              className={`min-w-0 animate-fade-in overflow-y-auto rounded-2xl bg-white p-5 ring-1 ring-line [scrollbar-width:thin] sm:p-6 lg:h-full ${
+                full ? "min-h-[28rem] lg:min-h-0" : "h-[28rem]"
+              }`}
             >
               <StageView id={id} tick={tick} d={d} tx={tx} health={h} />
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-line-soft px-5 py-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line-soft px-5 py-3">
             <StageBtn onClick={() => goStage(stage - 1)} disabled={stage === 0} label={tx.prev}>
               <path d="m15 6-6 6 6 6" />
             </StageBtn>
@@ -440,7 +492,7 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
       {d && r && phase === "done" && (
         <>
           <section className="animate-fade-up overflow-hidden rounded-[24px] border border-line bg-white shadow-sm">
-            <AddressBar raw={d.raw} label={tx.another} onBack={reset} />
+            <AddressBar raw={d.raw} label={tx.another} onBack={reset} extra={fullBtn} />
           </section>
           <Analysis r={r} d={d} tx={tx} health={h} threshold={threshold} />
           <div className="flex flex-wrap justify-center gap-2 pb-6">
@@ -456,15 +508,104 @@ export function DemoPage({ threshold, active }: { threshold: number; active: boo
 }
 
 // разбираемый адрес над сценой вместо строки ввода; кнопка возвращает к вводу
-function AddressBar({ raw, label, onBack }: { raw: string; label: string; onBack: () => void }) {
+function AddressBar({
+  raw,
+  label,
+  onBack,
+  extra,
+}: { raw: string; label: string; onBack: () => void; extra?: ReactNode }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-3 sm:px-7">
+    <div className="flex shrink-0 items-center gap-3 px-5 py-3 sm:px-7">
       <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink sm:text-base" title={visible(raw)}>
         {visible(raw)}
       </span>
+      {extra}
       <Button size="sm" onClick={onBack} className="shrink-0">
         {label}
       </Button>
+    </div>
+  );
+}
+
+// экран, под который свёрстана сцена: на большем всё увеличивается пропорционально, как слайд
+const STAGE_W = 1200;
+const STAGE_H = 760;
+const MAX_SCALE = 1.8;
+
+/**
+ * Полноэкранный режим элемента (для показа на проекторе). Без Fullscreen API (iPhone) переключателя нет: null.
+ * Состояние берётся из события браузера: выход по Esc тоже его меняет. На весь экран растёт корневой шрифт:
+ * вёрстка в rem, поэтому текст, отступы и элементы увеличиваются вместе (брейкпоинты в rem от него не зависят).
+ */
+function useFullscreen(ref: RefObject<HTMLElement | null>): [boolean, (() => void) | null] {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(!!ref.current && document.fullscreenElement === ref.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, [ref]);
+  useEffect(() => {
+    if (!full) return;
+    const root = document.documentElement;
+    const fit = () => {
+      const k = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+      root.style.fontSize = `${Math.min(MAX_SCALE, Math.max(1, k)) * 100}%`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      root.style.fontSize = "";
+    };
+  }, [full]);
+  if (!document.fullscreenEnabled) return [false, null];
+  const toggle = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void ref.current?.requestFullscreen().catch(() => undefined);
+  };
+  return [full, toggle];
+}
+
+// мельче не уменьшаем: текст должен читаться с экрана
+const FIT_MIN = 0.72;
+
+/**
+ * Колонка как слайд: без прокрутки. Если содержимое выше колонки (длинный язык, низкий экран), оно уменьшается
+ * целиком (scale), а ширина под масштаб растёт, чтобы строки не стали короче. Пересчёт при смене этапа, языка,
+ * полноэкранного режима и размера. Ниже lg высота колонки не задана: масштаб 1.
+ */
+function FitBox({ fitKey, className, children }: { fitKey: string; className: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fitKey меняет содержимое, мерить надо заново
+  useLayoutEffect(() => {
+    const outer = box.current;
+    const inner = body.current;
+    if (!outer || !inner) return;
+    const fit = () => {
+      let s = 1;
+      inner.style.transform = "";
+      inner.style.width = "";
+      const avail = outer.clientHeight;
+      for (let i = 0; i < 4; i++) {
+        const h = inner.offsetHeight;
+        if (h * s <= avail + 1) break;
+        s = Math.max(FIT_MIN, Math.min(s, avail / h) * 0.995);
+        inner.style.width = `${100 / s}%`;
+        inner.style.transform = `scale(${s})`;
+        if (s === FIT_MIN) break;
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(outer);
+    return () => ro.disconnect();
+  }, [fitKey]);
+  return (
+    <div ref={box} className={`min-h-0 overflow-hidden ${className}`}>
+      <div ref={body} className="origin-top-left">
+        {children}
+      </div>
     </div>
   );
 }

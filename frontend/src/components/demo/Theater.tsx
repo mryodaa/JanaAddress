@@ -271,7 +271,7 @@ function RulesStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts }
   const values: Partial<Record<FieldName, string>> = {};
   for (const e of shown) values[e.field] = e.value;
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_16.25rem]">
       <div>
         <Line
           raw={d.raw}
@@ -323,7 +323,7 @@ function TaggerStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
   return (
     <div>
       <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-3">{tx.taggerSweep}</div>
-      <div className="relative flex flex-wrap gap-[3px] font-mono text-lg">
+      <div className="relative flex flex-wrap gap-[0.1875rem] font-mono text-lg">
         {cps.map((c, i) => {
           const s = label[i];
           const done = i < pos;
@@ -342,7 +342,7 @@ function TaggerStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
             >
               {c === " " ? "␣" : visible(c)}
               {done && begin && (
-                <span className="absolute -top-2 left-0 animate-fade-in rounded bg-ink px-0.5 text-[8px] font-bold leading-3 text-white">
+                <span className="absolute -top-2 left-0 animate-fade-in rounded bg-ink px-0.5 text-[0.5rem] font-bold leading-3 text-white">
                   B
                 </span>
               )}
@@ -399,14 +399,14 @@ function ArbiterStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts
   const cell = (c: { value: string; score: number } | null, win: boolean) =>
     c ? (
       <span className={win ? "font-semibold text-ink" : "text-ink-3"}>
-        {c.value || "—"} <span className="font-mono text-[10px] text-ink-3">{c.score.toFixed(2)}</span>
+        {c.value || "—"} <span className="font-mono text-[0.625rem] text-ink-3">{c.score.toFixed(2)}</span>
       </span>
     ) : (
       <span className="text-ink-3">—</span>
     );
   return (
     <div className="overflow-hidden rounded-xl ring-1 ring-line">
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_8.5rem] gap-3 bg-canvas px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_8.5rem] gap-3 bg-canvas px-3 py-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-3">
         <span />
         <span>{tx.arbiterRules}</span>
         <span>{tx.arbiterModel}</span>
@@ -430,7 +430,7 @@ function ArbiterStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts
             row.decision === "model" || row.decision === "model_only" || row.decision === "agree",
           )}
           <span
-            className={`animate-scale-in justify-self-end rounded-full px-2 py-0.5 text-[11px] font-semibold ${DECISION_CLS[row.decision] ?? DECISION_CLS.rules_only}`}
+            className={`animate-scale-in justify-self-end rounded-full px-2 py-0.5 text-[0.6875rem] font-semibold ${DECISION_CLS[row.decision] ?? DECISION_CLS.rules_only}`}
           >
             {tx.decisions[row.decision] ?? row.decision}
           </span>
@@ -449,7 +449,7 @@ function ReferenceStage({
   const { fieldLabels, locale } = useI18n();
   const n = (v?: number) => (v != null ? v.toLocaleString(locale) : "—");
   return (
-    <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="grid gap-6 lg:grid-cols-[13.75rem_minmax(0,1fr)]">
       <div className="rounded-2xl bg-canvas p-4 ring-1 ring-line">
         <div className="relative mb-3 grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-800">
           {tick < Math.max(1, d.reference.length + 1) && (
@@ -496,7 +496,7 @@ function ReferenceStage({
                 </span>
                 <span className="text-ink-3">←</span>
                 <span className="text-lg font-semibold text-ink">{e.value}</span>
-                <span className="ml-auto rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800">
+                <span className="ml-auto rounded-full bg-brand-50 px-2 py-0.5 text-[0.6875rem] font-semibold text-brand-800">
                   {tx.refSources[e.source] ?? e.source}
                 </span>
               </div>
@@ -508,7 +508,7 @@ function ReferenceStage({
   );
 }
 
-function Gauge({ value, size = 160 }: { value: number; size?: number }) {
+function Gauge({ value, size = 160, className = "" }: { value: number; size?: number; className?: string }) {
   const r = size / 2 - 10;
   const c = 2 * Math.PI * r;
   const tone =
@@ -520,7 +520,7 @@ function Gauge({ value, size = 160 }: { value: number; size?: number }) {
           ? "stroke-warn"
           : "stroke-danger";
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden="true">
+    <svg viewBox={`0 0 ${size} ${size}`} className={`-rotate-90 ${className}`} aria-hidden="true">
       <circle cx={size / 2} cy={size / 2} r={r} className="fill-none stroke-line-soft" strokeWidth="10" />
       <circle
         cx={size / 2}
@@ -533,6 +533,31 @@ function Gauge({ value, size = 160 }: { value: number; size?: number }) {
         strokeDashoffset={c * (1 - Math.max(0, Math.min(1, value)))}
       />
     </svg>
+  );
+}
+
+/** Круг с процентом, под ним пояснение и отметка «Итог»; место под отметку занято заранее: ничего не прыгает. */
+function GaugeBlock({
+  value,
+  final,
+  finalLabel,
+  children,
+}: { value: number; final: boolean; finalLabel: string; children?: ReactNode }) {
+  return (
+    <div className="grid justify-items-center gap-2 text-center">
+      <div className="relative grid place-items-center">
+        <Gauge value={value} size={170} className="h-[10.625rem] w-[10.625rem]" />
+        <div className="absolute text-4xl font-semibold tracking-tight tabular-nums text-ink">
+          {Math.round(value * 100)}%
+        </div>
+      </div>
+      {children && <div className="text-xs text-ink-3">{children}</div>}
+      <span
+        className={`rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800 ${final ? "animate-fade-in" : "invisible"}`}
+      >
+        {finalLabel}
+      </span>
+    </div>
   );
 }
 
@@ -549,17 +574,10 @@ function ConfidenceStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTe
   const final = tick > rows.length;
   const value = final ? m.p : shown.length ? clampTo(sigmoid(z), m.bounds) : 0;
   return (
-    <div className="grid items-center gap-8 sm:grid-cols-[180px_minmax(0,1fr)]">
-      <div className="relative grid place-items-center">
-        <Gauge value={value} size={170} />
-        <div className="absolute text-center">
-          <div className="text-4xl font-semibold tabular-nums text-ink">{Math.round(value * 100)}%</div>
-          <div className="font-mono text-xs tabular-nums text-ink-3">
-            {tx.cx.sum}: {z.toFixed(2)}
-          </div>
-          {final && <div className="animate-fade-in text-xs text-ink-3">{tx.confFinal}</div>}
-        </div>
-      </div>
+    <div className="grid items-start gap-8 sm:grid-cols-[11.25rem_minmax(0,1fr)]">
+      <GaugeBlock value={value} final={final} finalLabel={tx.confFinal}>
+        {tx.cx.sum}: <span className="font-mono font-semibold tabular-nums text-ink-2">{z.toFixed(2)}</span>
+      </GaugeBlock>
       <div className="grid gap-1.5">
         <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-3">
           {tx.confTitle}
@@ -591,14 +609,8 @@ function ConfidenceStageParts({ d, tick, tx }: { d: Derived; tick: number; tx: D
   const final = tick > d.parts.length;
   const value = final ? d.confidence : Math.max(0, Math.min(0.99, sum));
   return (
-    <div className="grid items-center gap-8 sm:grid-cols-[180px_minmax(0,1fr)]">
-      <div className="relative grid place-items-center">
-        <Gauge value={value} size={170} />
-        <div className="absolute text-center">
-          <div className="text-4xl font-semibold tabular-nums text-ink">{Math.round(value * 100)}%</div>
-          {final && <div className="animate-fade-in text-xs text-ink-3">{tx.confFinal}</div>}
-        </div>
-      </div>
+    <div className="grid items-start gap-8 sm:grid-cols-[11.25rem_minmax(0,1fr)]">
+      <GaugeBlock value={value} final={final} finalLabel={tx.confFinal} />
       <div className="grid gap-1.5">
         <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-3">
           {tx.confTitle}
@@ -637,11 +649,11 @@ function JsonView({
 }) {
   return (
     <div className="overflow-hidden rounded-2xl bg-ink ring-1 ring-ink/10">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2 font-mono text-[11px] text-white/50">
+      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2 font-mono text-[0.6875rem] text-white/50">
         <span className="h-2 w-2 rounded-full bg-brand-500" />
         {label}
       </div>
-      <div className="overflow-x-auto px-4 py-3 font-mono text-[13px] leading-[22px]">
+      <div className="overflow-x-auto px-4 py-3 font-mono text-[0.8125rem] leading-[1.375rem]">
         <div className="text-white/60">{"{"}</div>
         {lines.slice(0, shown).map((l, i) => (
           <div key={l.key} className="flex animate-fade-up items-baseline gap-3 pl-5">
@@ -696,12 +708,12 @@ function OutputStage({ d, tick, tx }: { d: Derived; tick: number; tx: DemoTexts 
     tag:
       l.source != null ? (
         <span
-          className={`shrink-0 rounded px-1.5 font-sans text-[10px] font-semibold uppercase leading-4 tracking-wide ring-1 ring-inset ${SRC_TAG[l.source] ?? ""}`}
+          className={`shrink-0 rounded px-1.5 font-sans text-[0.625rem] font-semibold uppercase leading-4 tracking-wide ring-1 ring-inset ${SRC_TAG[l.source] ?? ""}`}
         >
           {l.source === "string" ? tx.srcStringTag : tx.srcRefTag}
         </span>
       ) : l.value == null ? (
-        <span className="shrink-0 font-sans text-[10px] text-white/35">{tx.nullTag}</span>
+        <span className="shrink-0 font-sans text-[0.625rem] text-white/35">{tx.nullTag}</span>
       ) : undefined,
   }));
   const shown = Math.min(lines.length, Math.max(0, tick - 1) * 2);

@@ -92,7 +92,16 @@ export function Summary({
   return (
     <section className="grid animate-fade-up gap-4 rounded-[20px] border border-line bg-white p-4 sm:p-5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 md:grid-cols-2 xl:grid-cols-4">
-        <Tile label={t("statRecords")} value={<Num value={s.total} />} hint={s.name ?? undefined} />
+        <Tile
+          label={t("statRecords")}
+          value={<Num value={s.total} />}
+          // записи без адреса в сводку не входят: показываем, сколько их, вместо имени файла
+          hint={
+            (sum.no_address ?? 0) > 0
+              ? t("noAddressCount", { n: sum.no_address ?? 0 })
+              : (s.name ?? undefined)
+          }
+        />
         <Tile
           label={t("statProcessed")}
           value={done ? <Num value={s.processed} /> : <Num value={Math.round(progress * 100)} suffix="%" />}
@@ -137,14 +146,17 @@ export function Summary({
           }
           accent="brand"
         >
-          <ProgressBar value={sum.confident / Math.max(1, s.total)} className="mt-2 h-1" />
+          <ProgressBar
+            value={sum.confident / Math.max(1, s.total - (sum.no_address ?? 0))}
+            className="mt-2 h-1"
+          />
         </Tile>
       </div>
       <ConfidenceHistogram
         histogram={sum.histogram}
         below={sum.histogram_uncertain}
         threshold={th}
-        total={Math.max(1, s.processed)}
+        total={Math.max(1, s.processed - (sum.no_address ?? 0))}
         selected={bucket}
         onSelect={onBucket}
         disabled={!done}

@@ -19,10 +19,14 @@ export interface DemoTexts {
   autoNextHint: string;
   waitNext: string;
   skip: string;
+  fullscreen: string;
+  exitFullscreen: string;
   replay: string;
   another: string;
   demoNote: string;
-  stages: Record<StageId, { title: string; lead: string; tool: string; toolDetail: string }>;
+  stages: Record<StageId, { title: string; lead: string; tool: string; toolPoints: string[] }>;
+  /** подпись списка подробностей инструмента */
+  toolHow: string;
   cleanNothing: string;
   cleanRemoved: string;
   layoutFixed: string;
@@ -197,6 +201,7 @@ const ru: DemoTexts = {
   examples: "Попробуйте:",
   stageOf: "Шаг {n} из {total}",
   tool: "Инструмент",
+  toolHow: "Как устроено",
   play: "Продолжить",
   pause: "Пауза",
   prev: "Назад",
@@ -206,6 +211,8 @@ const ru: DemoTexts = {
   autoNextHint: "Выключите, чтобы шаг доигрывал анимацию и ждал кнопки → (или стрелки). Клавиша A.",
   waitNext: "Шаг показан. Дальше: → или стрелка вправо",
   skip: "Сразу к результату",
+  fullscreen: "На весь экран (F)",
+  exitFullscreen: "Выйти из полноэкранного режима (F или Esc)",
   replay: "Смотреть анимацию снова",
   another: "Другой адрес",
   demoNote: "Анимация замедлена для наглядности: на самом деле весь разбор занимает миллисекунды.",
@@ -214,65 +221,108 @@ const ru: DemoTexts = {
       title: "Вход",
       lead: "Запись приходит так, как её подаёт жюри: JSON с id и одной строкой raw_address. Область, город и адрес склеены вместе, как лежат в базе.",
       tool: "REST API, пакетный метод",
-      toolDetail:
-        "POST /api/v1/parse/batch принимает массив записей (sample_input.json), объект со списком или JSONL; ответ приходит в той же форме.",
+      toolPoints: [
+        "POST /api/v1/parse/batch принимает массив {id, raw_address}, объект со списком или JSONL (UTF-8, UTF-16, cp1251); ответ в той же форме.",
+        "id и raw_address возвращаются байт в байт, порядок сохраняется: на каждую запись ровно один ответ.",
+        "Ошибка в одной записи не роняет пакет: у неё просто все поля null.",
+        "Работает офлайн, без сети и внешних API: 1000 записей через API около 2 секунд.",
+      ],
     },
     clean: {
       title: "Очистка",
       lead: "Убираем невидимые символы, лишние пробелы и чиним текст, набранный в английской раскладке. Оригинал при этом не меняется.",
       tool: "Нормализация Unicode",
-      toolDetail: "Карта смещений к оригиналу: каждое поле потом вырезается из исходной строки байт в байт.",
+      toolPoints: [
+        "Строка без кириллицы перекодируется QWERTY → ЙЦУКЕН, если после этого узнаются слова: «Fkvfns» → «Алматы».",
+        "Удаляются невидимые символы (U+200B, U+FEFF, мягкий перенос) и управляющие; неразрывные пробелы становятся обычными, лишние схлопываются.",
+        "Для каждого символа помнится его место в оригинале: значения полей потом вырезаются из исходной строки, а не из очищенной копии.",
+      ],
     },
     tokens: {
       title: "Токены",
       lead: "Режем строку на слова, числа и разделители. «55/6» остаётся одним числом, «4подьезд» делится на число и слово.",
       tool: "Токенизатор",
-      toolDetail: "Регулярные выражения с позициями токенов в исходной строке.",
+      toolPoints: [
+        "Четыре вида токенов: число (12, 1/2, 12а, 12 А), слово (в том числе пр-т, ж/м, 1-я), разделитель и знак.",
+        "Слитное написание делится: «66квартал» → 66 + квартал, «47Бдом» → 47Б + дом.",
+        "Телефоны, почтовые индексы и время («до 18:00») сразу помечаются шумом и в поля не попадают.",
+      ],
     },
     bilingual: {
       title: "Два языка и лишнее",
       lead: "Находим дубли «город Актобе/Ақтөбе қаласы» и названия организаций, которые к адресу не относятся.",
       tool: "Правила склеек",
-      toolDetail: "Слэш между словами означает перевод, а между цифрами дробь номера дома.",
+      toolPoints: [
+        "Слэш между словами означает перевод («Актобе/Ақтөбе»), между цифрами дробь дома («55/6»). Казахская половина (ә, ғ, қ, ң, ө, ұ, ү, һ, і, «қаласы») помечается дублем.",
+        "Организация после ТОО, ИП, АО, ЖШС (название в кавычках или до трёх слов) уходит в шум.",
+        "Корпус, строение или блок с номером («корп 2», «11к2») забирается целиком: номер не станет квартирой.",
+      ],
     },
     rules: {
       title: "Правила",
       lead: "Ищем маркеры («ул», «мкр», «кв», «подъезд»), город и район по справочнику, номера по позиции.",
       tool: "Словари маркеров + справочник",
-      toolDetail: "YAML-словари: маркеры, типы улиц, ориентиры, административные единицы.",
+      toolPoints: [
+        "Шаги по очереди: область, город и район → дом, квартира, подъезд, этаж по маркерам → улица и её тип → ориентир → номера по позиции.",
+        "Маркеры на русском, казахском и латиницей; тип улицы до или после названия: «ул. Абая», «Абай көшесі».",
+        "Номер без маркера: первое свободное число после улицы; «150-23» → дом 150, квартира 23.",
+        "Улица или город без маркера угадываются, но с флагом сомнения: уверенность ниже. Новые маркеры добавляются в YAML без правки кода.",
+      ],
     },
     tagger: {
       title: "Нейросеть",
       lead: "Посимвольная модель независимо размечает ту же строку. Она не знает правил и не пишет значения сама, только предлагает спаны.",
       tool: "BiLSTM-CRF, ONNX",
-      toolDetail: "2 слоя × 128, 27 BIO-тегов, int8 ONNX, onnxruntime + декодер Витерби.",
+      toolPoints: [
+        "Читает исходную строку посимвольно (символ, регистр, класс: кириллица, казахская буква, латиница, цифра) и ставит каждому символу тег B/I/O одного из 13 классов.",
+        "BiLSTM 2 слоя × 128 + CRF по 27 BIO-тегам, около 600 тыс. параметров; ONNX int8 650 КБ, onnxruntime и Витерби на CPU без torch.",
+        "Обучена только на синтетике из нашего справочника (150 тыс. строк с опечатками, латиницей, склейками). 15% улиц и 10% пунктов в обучение не попали: на них проверяем обобщение.",
+        "Нет файла модели или она упала: разбор продолжается на правилах, пакет не падает.",
+      ],
     },
     arbiter: {
       title: "Арбитр",
       lead: "Сравниваем правила и модель по каждому полю. Если они спорят, кандидаты проверяются справочником и грамматикой.",
       tool: "Арбитр",
-      toolDetail:
-        "Проверки: город существует, улица есть в городе, дом на улице, этаж ≤ 40. Веса подобраны на dev-наборе.",
+      toolPoints: [
+        "Спаны совпали: берётся значение правил; совпадение по всем полям повышает уверенность.",
+        "Разошлись: у каждого кандидата счёт = доверие к источнику + вероятность модели + проверки справочником (город существует, улица в этом городе, дом на этой улице) и грамматикой (этаж ≤ 40, подъезд ≤ 20).",
+        "Спорные поля решаются вместе: один символ строки не может принадлежать двум полям.",
+        "Правила дали null: значение модели берётся только при высоком счёте, null лучше неверного. Веса подобраны логистической регрессией на dev-наборах.",
+      ],
     },
     reference: {
       title: "Справочник",
       lead: "Дополняем то, чего нет в строке: область, район, жилой массив. Значения из строки справочник не перезаписывает.",
       tool: "SQLite-справочник",
-      toolDetail: "OSM + КАТО, индексные запросы и нечёткий поиск rapidfuzz. Без сети.",
+      toolPoints: [
+        "Заполняет только пустые поля: по дому его район и мкр, по улице основной район, по мкр район, по городу область.",
+        "Поиск: точное совпадение названия → нормализованное (регистр, ё/е, казахские буквы, транслит латиницы) → нечёткое rapidfuzz внутри найденного города.",
+        "Собран заранее из OSM, КАТО и ручного ядра: 14 тыс. населённых пунктов, 55 тыс. улиц, 1,18 млн домов. Геометрия посчитана при сборке, в работе только запросы по индексам.",
+        "У каждого восстановленного поля указан источник: дом, улица, полигон, точка, ориентир или КАТО.",
+      ],
     },
     confidence: {
       title: "Уверенность",
       lead: "Собираем оценку из баллов: у каждого признака разбора свой вес, баллы складываются, а сумма переводится в вероятность. Плюс тянет к 100%, минус к нулю.",
       tool: "Логистическая регрессия",
-      toolDetail:
-        "Веса подобраны на проверочных наборах (training/fit_confidence.py), не заданы вручную. Итог: вероятность, что все поля метрики верны, от 2 до 99%.",
+      toolPoints: [
+        "Признаки: доля разобранных токенов, есть ли улица, дом и город, неразобранный остаток, худшая надёжность поля, флаги сомнений, подтверждение справочником.",
+        "Сумма баллов z переводится в вероятность σ(z) = 1 / (1 + e^−z) и ограничивается диапазоном 2–99%.",
+        "Форма подобрана на синтетических dev-наборах, уровень откалиброван методом Платта на живых dev-строках.",
+        "Ниже порога ({th}%, меняется в настройках) запись попадает оператору на проверку.",
+      ],
     },
     output: {
       title: "Выход",
       lead: "Из шагов собирается ответ в формате sample_output.json: id и raw_address без изменений, каждое поле отдельно, то, что не удалось определить, null.",
       tool: "Ответ API",
-      toolDetail:
-        "Строковые поля вырезаны из исходной строки как написаны, справочные помечены источником; confidence в метрику не входит, по нему оператор видит, что проверить.",
+      toolPoints: [
+        "Улица, ориентир, дом вырезаются из исходной строки как написаны: без исправления опечаток, падежа и регистра.",
+        "Город, область и район в каноническом виде справочника; у полей из справочника указан источник.",
+        "Не определено: null, а не пустая строка; сомнительное значение лучше не ставить, чем ставить неверное.",
+        "Параметр ?explain=true добавляет trace по шагам: всё, что показано в этой демонстрации.",
+      ],
     },
   },
   cleanNothing: "Строка чистая: удалять нечего.",
@@ -538,6 +588,7 @@ const kk: DemoTexts = {
   examples: "Байқап көріңіз:",
   stageOf: "{total} қадамның {n}-і",
   tool: "Құрал",
+  toolHow: "Қалай жұмыс істейді",
   play: "Жалғастыру",
   pause: "Үзіліс",
   prev: "Артқа",
@@ -547,6 +598,8 @@ const kk: DemoTexts = {
   autoNextHint: "Өшірсеңіз, қадам анимациясын аяқтап, → батырмасын (немесе көрсеткіні) күтеді. A пернесі.",
   waitNext: "Қадам көрсетілді. Әрі қарай: → немесе оң көрсеткі",
   skip: "Бірден нәтижеге",
+  fullscreen: "Толық экран (F)",
+  exitFullscreen: "Толық экраннан шығу (F немесе Esc)",
   replay: "Анимацияны қайта көру",
   another: "Басқа мекенжай",
   demoNote: "Анимация көрнекілік үшін баяулатылған: шын мәнінде бүкіл талдау миллисекундтар алады.",
@@ -555,65 +608,108 @@ const kk: DemoTexts = {
       title: "Кіріс",
       lead: "Жазба қазылар беретіндей келеді: id және бір raw_address жолы бар JSON. Облыс, қала және мекенжай базадағыдай біріктірілген.",
       tool: "REST API, пакеттік әдіс",
-      toolDetail:
-        "POST /api/v1/parse/batch жазбалар массивін (sample_input.json), тізімі бар объектіні немесе JSONL қабылдайды; жауап сол пішінде келеді.",
+      toolPoints: [
+        "POST /api/v1/parse/batch {id, raw_address} массивін, тізімі бар объектіні немесе JSONL қабылдайды (UTF-8, UTF-16, cp1251); жауап сол пішінде.",
+        "id мен raw_address байтпа-байт қайтарылады, рет сақталады: әр жазбаға дәл бір жауап.",
+        "Бір жазбадағы қате бүкіл топтаманы құлатпайды: оның барлық өрістері null болады.",
+        "Желісіз, сыртқы API-сіз жұмыс істейді: API арқылы 1000 жазба шамамен 2 секундта.",
+      ],
     },
     clean: {
       title: "Тазалау",
       lead: "Көзге көрінбейтін таңбаларды, артық бос орындарды алып тастаймыз, ағылшын пернетақтасында терілген мәтінді түзетеміз. Түпнұсқа өзгермейді.",
       tool: "Unicode нормализациясы",
-      toolDetail: "Түпнұсқаға ығысу картасы: әр өріс кейін бастапқы жолдан дәл сол күйінде қиылады.",
+      toolPoints: [
+        "Кириллицасыз жол QWERTY → ЙЦУКЕН болып қайта кодталады, егер содан кейін сөздер танылса: «Fkvfns» → «Алматы».",
+        "Көрінбейтін (U+200B, U+FEFF, жұмсақ тасымал) және басқару таңбалары жойылады; бөлінбейтін бос орындар қарапайым болады, артығы біріктіріледі.",
+        "Әр таңбаның түпнұсқадағы орны сақталады: өріс мәндері кейін тазартылған көшірмеден емес, бастапқы жолдан қиылады.",
+      ],
     },
     tokens: {
       title: "Токендер",
       lead: "Жолды сөздерге, сандарға және бөлгіштерге бөлеміз. «55/6» бір сан болып қалады, «4подьезд» сан мен сөзге бөлінеді.",
       tool: "Токенизатор",
-      toolDetail: "Бастапқы жолдағы позициялары бар тұрақты өрнектер.",
+      toolPoints: [
+        "Токеннің төрт түрі: сан (12, 1/2, 12а, 12 А), сөз (соның ішінде пр-т, ж/м, 1-я), бөлгіш және белгі.",
+        "Бірге жазылған сөздер бөлінеді: «66квартал» → 66 + квартал, «47Бдом» → 47Б + дом.",
+        "Телефондар, пошта индекстері және уақыт («до 18:00») бірден шу деп белгіленеді және өрістерге түспейді.",
+      ],
     },
     bilingual: {
       title: "Екі тіл және артығы",
       lead: "«город Актобе/Ақтөбе қаласы» сияқты қайталауларды және мекенжайға қатысы жоқ ұйым атауларын табамыз.",
       tool: "Біріктіру ережелері",
-      toolDetail: "Сөздер арасындағы слэш аударманы, сандар арасындағысы үй нөмірінің бөлшегін білдіреді.",
+      toolPoints: [
+        "Сөздер арасындағы слэш аударманы білдіреді («Актобе/Ақтөбе»), цифрлар арасында үй нөмірінің бөлшегін («55/6»). Қазақша жартысы (ә, ғ, қ, ң, ө, ұ, ү, һ, і, «қаласы») қайталау деп белгіленеді.",
+        "ТОО, ИП, АО, ЖШС-тан кейінгі ұйым атауы (тырнақшадағы немесе үш сөзге дейін) шуға кетеді.",
+        "Нөмірі бар корпус, құрылыс немесе блок («корп 2», «11к2») толығымен алынады: нөмір пәтерге айналмайды.",
+      ],
     },
     rules: {
       title: "Ережелер",
       lead: "Маркерлерді («ул», «мкр», «кв», «подъезд»), анықтамалық бойынша қала мен ауданды, позиция бойынша нөмірлерді іздейміз.",
       tool: "Маркер сөздіктері + анықтамалық",
-      toolDetail: "YAML сөздіктер: маркерлер, көше түрлері, бағдарлар, әкімшілік бірліктер.",
+      toolPoints: [
+        "Қадамдар кезекпен: облыс, қала және аудан → маркерлер бойынша үй, пәтер, кіреберіс, қабат → көше және оның түрі → бағдар → орны бойынша нөмірлер.",
+        "Маркерлер орысша, қазақша және латынша; көше түрі атауының алдында немесе соңында: «ул. Абая», «Абай көшесі».",
+        "Маркерсіз нөмір: көшеден кейінгі бірінші бос сан; «150-23» → үй 150, пәтер 23.",
+        "Маркерсіз көше немесе қала болжанады, бірақ күмән белгісімен: сенімділік төмен. Жаңа маркерлер кодты өзгертпей YAML-ға қосылады.",
+      ],
     },
     tagger: {
       title: "Нейрожелі",
       lead: "Таңбалық модель сол жолды өз бетінше белгілейді. Ол ережелерді білмейді және мәнді өзі жазбайды, тек спандарды ұсынады.",
       tool: "BiLSTM-CRF, ONNX",
-      toolDetail: "2 қабат × 128, 27 BIO тег, int8 ONNX, onnxruntime + Витерби декодері.",
+      toolPoints: [
+        "Бастапқы жолды таңба бойынша оқиды (таңба, регистр, класс: кириллица, қазақ әрпі, латын, цифр) және әр таңбаға 13 кластың біріне B/I/O тегін қояды.",
+        "BiLSTM 2 қабат × 128 + 27 BIO тегі бойынша CRF, шамамен 600 мың параметр; ONNX int8 650 КБ, torch-сыз CPU-да onnxruntime және Витерби.",
+        "Тек біздің анықтамалықтан алынған синтетикада оқытылған (қателері, латыны, жапсырмалары бар 150 мың жол). Көшелердің 15%-ы мен елді мекендердің 10%-ы оқытуға кірмеді: олармен жалпылауды тексереміз.",
+        "Модель файлы жоқ немесе ол құласа: талдау ережелермен жалғасады, топтама құламайды.",
+      ],
     },
     arbiter: {
       title: "Төреші",
       lead: "Әр өріс бойынша ережелер мен модельді салыстырамыз. Келіспесе, үміткерлер анықтамалықпен және грамматикамен тексеріледі.",
       tool: "Төреші",
-      toolDetail:
-        "Тексерулер: қала бар, көше қалада бар, үй көшеде, қабат ≤ 40. Салмақтар dev жиынында таңдалған.",
+      toolPoints: [
+        "Спандар сәйкес келді: ережелердің мәні алынады; барлық өрістер бойынша сәйкестік сенімділікті арттырады.",
+        "Сәйкес келмеді: әр үміткердің ұпайы = дереккөзге сенім + модель ықтималдығы + анықтамалықпен тексеру (қала бар, көше осы қалада, үй осы көшеде) және грамматика (қабат ≤ 40, кіреберіс ≤ 20).",
+        "Даулы өрістер бірге шешіледі: жолдың бір таңбасы екі өріске тиесілі бола алмайды.",
+        "Ережелер null берсе: модель мәні тек жоғары ұпайда алынады, null қате мәннен жақсы. Салмақтар dev жиындарында логистикалық регрессиямен таңдалған.",
+      ],
     },
     reference: {
       title: "Анықтамалық",
       lead: "Жолда жоқ нәрсені толықтырамыз: облыс, аудан, тұрғын алап. Жолдағы мәндерді анықтамалық қайта жазбайды.",
       tool: "SQLite анықтамалығы",
-      toolDetail: "OSM + ҚАТО, индекстік сұраулар және rapidfuzz анық емес іздеуі. Желісіз.",
+      toolPoints: [
+        "Тек бос өрістерді толтырады: үй бойынша оның ауданы мен ықшам ауданы, көше бойынша негізгі аудан, ықшам аудан бойынша аудан, қала бойынша облыс.",
+        "Іздеу: атаудың дәл сәйкестігі → қалыпқа келтірілген (регистр, ё/е, қазақ әріптері, латын транслиті) → табылған қала ішінде rapidfuzz анық емес іздеуі.",
+        "OSM, КАТО және қолмен жасалған өзектен алдын ала жиналған: 14 мың елді мекен, 55 мың көше, 1,18 млн үй. Геометрия жинау кезінде есептелген, жұмыста тек индекстер бойынша сұраулар.",
+        "Қалпына келтірілген әр өрістің дереккөзі көрсетілген: үй, көше, полигон, нүкте, бағдар немесе КАТО.",
+      ],
     },
     confidence: {
       title: "Сенімділік",
       lead: "Бағаны ұпайлардан жинаймыз: әр талдау белгісінің өз салмағы бар, ұпайлар қосылады, қосынды ықтималдыққа айналады. Плюс 100%-ға, минус нөлге тартады.",
       tool: "Логистикалық регрессия",
-      toolDetail:
-        "Салмақтар тексеру жиындарында таңдалған (training/fit_confidence.py), қолмен берілмеген. Қорытынды: метриканың барлық өрістері дұрыс болу ықтималдығы, 2-ден 99%-ға дейін.",
+      toolPoints: [
+        "Белгілер: талданған токендердің үлесі, көше, үй және қала бар ма, талданбаған қалдық, өрістің ең төмен сенімділігі, күмән белгілері, анықтамалықпен растау.",
+        "Ұпайлар қосындысы z σ(z) = 1 / (1 + e^−z) ықтималдығына аударылады және 2–99% аралығымен шектеледі.",
+        "Пішіні синтетикалық dev жиындарында таңдалған, деңгейі тірі dev жолдарында Платт әдісімен калибрленген.",
+        "Шектен төмен ({th}%, баптауларда өзгертіледі) жазба операторға тексеруге түседі.",
+      ],
     },
     output: {
       title: "Шығыс",
       lead: "Қадамдардан sample_output.json пішініндегі жауап жиналады: id және raw_address өзгеріссіз, әр өріс бөлек, анықталмағаны null.",
       tool: "API жауабы",
-      toolDetail:
-        "Жол өрістері бастапқы жолдан жазылғандай қиылады, анықтамалық өрістерінің көзі белгіленеді; confidence метрикаға кірмейді, оператор не тексеру керегін көреді.",
+      toolPoints: [
+        "Көше, бағдар, үй бастапқы жолдан жазылғандай қиылады: қателер, септік және регистр түзетілмейді.",
+        "Қала, облыс және аудан анықтамалықтың канондық түрінде; анықтамалықтан алынған өрістердің дереккөзі көрсетілген.",
+        "Анықталмаған: бос жол емес, null; күмәнді мәнді қате қойғаннан гөрі қоймаған жақсы.",
+        "?explain=true параметрі қадамдар бойынша trace қосады: осы көрсетілімдегінің бәрі.",
+      ],
     },
   },
   cleanNothing: "Жол таза: алып тастайтын ештеңе жоқ.",
@@ -876,6 +972,7 @@ const en: DemoTexts = {
   examples: "Try:",
   stageOf: "Step {n} of {total}",
   tool: "Tool",
+  toolHow: "How it works",
   play: "Resume",
   pause: "Pause",
   prev: "Back",
@@ -885,6 +982,8 @@ const en: DemoTexts = {
   autoNextHint: "Turn off to let each step finish its animation and wait for → (or the arrow key). Key A.",
   waitNext: "Step shown. Next: → or the right arrow",
   skip: "Skip to result",
+  fullscreen: "Full screen (F)",
+  exitFullscreen: "Exit full screen (F or Esc)",
   replay: "Watch again",
   another: "Another address",
   demoNote: "The animation is slowed down for clarity: the real parse takes milliseconds.",
@@ -893,66 +992,108 @@ const en: DemoTexts = {
       title: "Input",
       lead: "The record arrives the way the jury sends it: JSON with an id and a single raw_address string. Region, city and address are glued together as in the database.",
       tool: "REST API, batch method",
-      toolDetail:
-        "POST /api/v1/parse/batch takes an array of records (sample_input.json), an object with a list, or JSONL; the answer comes back in the same shape.",
+      toolPoints: [
+        "POST /api/v1/parse/batch takes an array of {id, raw_address}, an object with a list, or JSONL (UTF-8, UTF-16, cp1251); the answer keeps the same shape.",
+        "id and raw_address come back byte for byte and the order is kept: exactly one answer per record.",
+        "An error in one record does not break the batch: that record just gets all fields null.",
+        "Works offline, with no network or external APIs: 1000 records through the API in about 2 seconds.",
+      ],
     },
     clean: {
       title: "Cleanup",
       lead: "Remove invisible characters and extra spaces, fix text typed in the English keyboard layout. The original is never changed.",
       tool: "Unicode normalisation",
-      toolDetail:
-        "An offset map back to the original: every field is later cut from the input string byte for byte.",
+      toolPoints: [
+        "A line with no Cyrillic is re-encoded QWERTY → ЙЦУКЕН if words become recognisable: “Fkvfns” → “Алматы”.",
+        "Invisible characters (U+200B, U+FEFF, soft hyphen) and control characters are removed; non-breaking spaces become plain, repeats collapse.",
+        "Each character keeps its position in the original: field values are later cut from the source line, not from the cleaned copy.",
+      ],
     },
     tokens: {
       title: "Tokens",
       lead: "Split the string into words, numbers and separators. “55/6” stays one number, “4подьезд” splits into a number and a word.",
       tool: "Tokenizer",
-      toolDetail: "Regular expressions that keep token positions in the original string.",
+      toolPoints: [
+        "Four token kinds: number (12, 1/2, 12а, 12 А), word (including пр-т, ж/м, 1-я), separator and punctuation.",
+        "Glued spelling is split: “66квартал” → 66 + квартал, “47Бдом” → 47Б + дом.",
+        "Phone numbers, postcodes and times (“до 18:00”) are marked as noise right away and never reach a field.",
+      ],
     },
     bilingual: {
       title: "Two languages and noise",
       lead: "Find duplicates like “город Актобе/Ақтөбе қаласы” and company names that are not part of the address.",
       tool: "Merge rules",
-      toolDetail: "A slash between words means a translation; between digits it's a house number fraction.",
+      toolPoints: [
+        "A slash between words means a translation (“Актобе/Ақтөбе”), between digits a house fraction (“55/6”). The Kazakh half (ә, ғ, қ, ң, ө, ұ, ү, һ, і, “қаласы”) is marked as a duplicate.",
+        "An organisation after ТОО, ИП, АО, ЖШС (a quoted name or up to three words) goes to noise.",
+        "A building block or wing with a number (“корп 2”, “11к2”) is taken as a whole, so its number never becomes the apartment.",
+      ],
     },
     rules: {
       title: "Rules",
       lead: "Look for markers (“ул”, “мкр”, “кв”, “подъезд”), city and district via the reference, numbers by position.",
       tool: "Marker dictionaries + reference",
-      toolDetail: "YAML dictionaries: markers, street types, landmarks, administrative units.",
+      toolPoints: [
+        "Steps in order: region, city and district → house, apartment, entrance, floor by markers → street and its type → landmark → numbers by position.",
+        "Markers in Russian, Kazakh and Latin script; street type before or after the name: “ул. Абая”, “Абай көшесі”.",
+        "A number without a marker: the first free number after the street; “150-23” → house 150, apartment 23.",
+        "A street or city without a marker is guessed but flagged, which lowers confidence. New markers are added in YAML without code changes.",
+      ],
     },
     tagger: {
       title: "Neural network",
       lead: "A character-level model labels the same string independently. It knows no rules and never writes values itself; it only proposes spans.",
       tool: "BiLSTM-CRF, ONNX",
-      toolDetail: "2 layers × 128, 27 BIO tags, int8 ONNX, onnxruntime + Viterbi decoder.",
+      toolPoints: [
+        "Reads the source line character by character (character, case, class: Cyrillic, Kazakh letter, Latin, digit) and gives every character a B/I/O tag of one of 13 classes.",
+        "BiLSTM, 2 layers × 128, + CRF over 27 BIO tags, about 600k parameters; ONNX int8 650 KB, onnxruntime and Viterbi on CPU without torch.",
+        "Trained only on synthetic data from our reference (150k lines with typos, Latin script, glued words). 15% of streets and 10% of settlements are held out of training to test generalisation.",
+        "No model file, or the model fails: parsing goes on with the rules and the batch never breaks.",
+      ],
     },
     arbiter: {
       title: "Arbiter",
       lead: "Compare rules and model field by field. When they disagree, candidates are checked against the reference and grammar.",
       tool: "Arbiter",
-      toolDetail:
-        "Checks: the city exists, the street is in the city, the house is on the street, floor ≤ 40. Weights fitted on dev data.",
+      toolPoints: [
+        "Spans agree: the rules' value is used; agreement on every field raises confidence.",
+        "They disagree: each candidate scores source trust + model probability + reference checks (the city exists, the street is in that city, the house is on that street) and grammar checks (floor ≤ 40, entrance ≤ 20).",
+        "Disputed fields are resolved together: one character of the line cannot belong to two fields.",
+        "Rules gave null: the model's value is taken only with a high score, because null beats a wrong value. Weights were fitted by logistic regression on dev sets.",
+      ],
     },
     reference: {
       title: "Reference",
       lead: "Fill in what the string lacks: region, district, residential area. Values found in the string are never overwritten.",
       tool: "SQLite reference",
-      toolDetail: "OSM + KATO, index lookups and rapidfuzz fuzzy matching. No network.",
+      toolPoints: [
+        "Fills only empty fields: a house gives its district and neighbourhood, a street its main district, a neighbourhood its district, a city its region.",
+        "Lookup: exact name match → normalised match (case, ё/е, Kazakh letters, Latin transliteration) → rapidfuzz fuzzy match within the found city.",
+        "Built in advance from OSM, KATO and a hand-made core: 14k settlements, 55k streets, 1.18M houses. Geometry is computed at build time; at runtime only index lookups.",
+        "Every restored field names its source: house, street, polygon, point, landmark or KATO.",
+      ],
     },
     confidence: {
       title: "Confidence",
       lead: "We build the score from points: each parsing signal has its own weight, the points add up, and the sum turns into a probability. Plus pulls towards 100%, minus towards zero.",
       tool: "Logistic regression",
-      toolDetail:
-        "Weights were fitted on validation sets (training/fit_confidence.py), not set by hand. The result is the probability that all metric fields are correct, from 2 to 99%.",
+      toolPoints: [
+        "Features: share of parsed tokens, whether street, house and city are present, leftover text, the weakest field score, doubt flags, confirmation by the reference.",
+        "The sum of points z becomes a probability σ(z) = 1 / (1 + e^−z), bounded to 2–99%.",
+        "The shape is fitted on synthetic dev sets, the level calibrated with Platt scaling on real dev lines.",
+        "Below the threshold ({th}%, adjustable in settings) a record goes to the operator for review.",
+      ],
     },
     output: {
       title: "Output",
       lead: "The steps add up to an answer in the sample_output.json format: id and raw_address unchanged, every field separate, anything not determined is null.",
       tool: "API response",
-      toolDetail:
-        "String fields are cut from the input as written, reference fields are tagged with their source; confidence is not part of the metric, it tells the operator what to check.",
+      toolPoints: [
+        "Street, landmark and house are cut from the source line as written: no fixing of typos, case or grammar.",
+        "City, region and district use the reference's canonical form; fields from the reference name their source.",
+        "Unknown means null, not an empty string; leaving a doubtful value out beats a wrong one.",
+        "The ?explain=true parameter adds a step-by-step trace: everything shown in this demo.",
+      ],
     },
   },
   cleanNothing: "The string is clean: nothing to remove.",

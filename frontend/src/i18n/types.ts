@@ -135,6 +135,12 @@ export interface TranslationDictionary {
   fileTooLarge: string;
   uploadProcessing: string;
   langAria: string;
+  // настройки в шапке: порог неуверенности
+  settings: string;
+  thresholdLabel: string;
+  thresholdHint: string;
+  thresholdDefault: string;
+  thresholdReset: string;
   err413: string;
   err422: string;
   err409: string;
@@ -190,6 +196,10 @@ export interface TranslationDictionary {
   undone: string;
   reviewProgress: string;
   skippedCount: string;
+  // записи без raw_address: не разбираются, своя вкладка
+  filterNoAddress: string;
+  noAddressCount: string;
+  noAddressNote: string;
   rowSkipped: string;
   kbDefer: string;
 
