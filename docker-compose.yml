@@ -5,12 +5,19 @@ services:
     platform: linux/amd64
     image: jana-address:latest
     container_name: jana-address
+    # только с этого компьютера: из локальной сети порт не виден (туннель ходит на localhost и работает).
+    # Открыть для других машин: "8000:8000" и задать JANA_API_KEY (docs/SECURITY.md)
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - jana-edits:/app/var
     environment:
       JANA_UNCERTAIN_THRESHOLD: "0.95"
+      # имена, под которыми к сервису обращаются (защита от DNS rebinding); пусто = любые.
+      # jana-address: вызовы из соседних контейнеров по имени сервиса
+      JANA_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],jana-address,*.trycloudflare.com"
+      # ключ доступа к API и UI (X-API-Key / Authorization: Bearer): JANA_API_KEY=... docker compose up; пусто = API открыт
+      JANA_API_KEY: "${JANA_API_KEY:-}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).status == 200 else 1)"]
       interval: 5s

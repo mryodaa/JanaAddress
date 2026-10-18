@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, config, engine
 from ..models import HealthOut, InputRecord
-from . import routes_parse
+from . import routes_parse, security
 
 log = logging.getLogger("jana_address")
 
@@ -42,6 +42,8 @@ def create_app() -> FastAPI:
         description="Разбор адресов Казахстана на поля с восстановлением по собственному справочнику.",
         lifespan=lifespan,
     )
+    # ключ, Origin, Host, заголовки: настройки из окружения на момент создания приложения
+    security.install(app, security.load_settings())
     app.include_router(routes_parse.router)
     try:
         from . import routes_sessions

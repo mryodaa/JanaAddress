@@ -71,6 +71,13 @@ def test_openapi_available() -> None:
     assert "/api/v1/parse/batch" in r.json()["paths"]
 
 
+def test_docs_and_swagger_available() -> None:
+    with client() as c:
+        assert c.get("/docs").status_code == 200
+        assert c.get("/redoc").status_code == 200
+
+
+
 def test_batch_lone_surrogate_answers_every_record() -> None:
     body = '[{"id":"s","raw_address":"\\ud800 Абая 1"},{"id":"t","raw_address":"x"}]'.encode()
     with client() as c:

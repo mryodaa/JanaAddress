@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { ApiError, api } from "./api/client";
+import { AuthGate } from "./components/AuthGate";
 import { CheckOne } from "./components/CheckOne";
+import { DocsMenu } from "./components/DocsMenu";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { SessionView } from "./components/SessionView";
 import { Settings } from "./components/Settings";
 import { Upload } from "./components/Upload";
 import { DEMO_TEXTS } from "./components/demo/texts";
+import { IconExternalLink } from "./components/icons";
 import { Segmented, Skeleton } from "./components/ui";
 import { useI18n } from "./i18n";
 import { useDebounced } from "./lib/motion";
@@ -147,6 +150,7 @@ export function App() {
           />
           <div className="ml-auto flex items-center gap-2">
             <LangSwitcher />
+            <DocsMenu />
             <Settings fallback={defaultThreshold} />
             {/* в рабочем состоянии статус не показываем: только загрузку и недоступность */}
             {status !== "ok" && (
@@ -196,15 +200,48 @@ export function App() {
           </div>
         </main>
       </div>
+      <AuthGate />
       <footer className="shrink-0 border-t border-line px-4 py-2 text-center text-[11px] text-ink-3">
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          target="_blank"
-          rel="noreferrer"
-          className="transition-colors hover:text-brand-700 hover:underline"
-        >
-          {t("osmAttribution")}
-        </a>
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <a
+            href="https://www.openstreetmap.org/copyright"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-brand-700 hover:underline"
+          >
+            {t("osmAttribution")}
+          </a>
+          <span className="text-line-soft">·</span>
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-medium text-ink-2 transition-colors hover:text-brand-700 hover:underline"
+          >
+            <span>Swagger UI</span>
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+          <span className="text-line-soft">·</span>
+          <a
+            href="/redoc"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 transition-colors hover:text-brand-700 hover:underline"
+          >
+            <span>ReDoc</span>
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+          <span className="text-line-soft">·</span>
+          <a
+            href="/openapi.json"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 transition-colors hover:text-brand-700 hover:underline"
+          >
+            <span>OpenAPI (JSON)</span>
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </footer>
     </div>
   );

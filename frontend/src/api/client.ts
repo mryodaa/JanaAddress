@@ -81,6 +81,13 @@ export class ApiError extends Error {
   }
 }
 
+/** Событие «нужен ключ доступа»: любой 401 от API, форму входа показывает AuthGate. */
+export const AUTH_EVENT = "jana:auth-required";
+
+function authRequired(status: number): void {
+  if (status === 401) window.dispatchEvent(new Event(AUTH_EVENT));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -96,6 +103,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* тело не JSON */
     }
+    // вход по ключу (POST /auth) сам показывает ошибку в форме: снова открывать её не нужно
+    if (!path.startsWith("/api/v1/auth")) authRequired(res.status);
     throw new ApiError(res.status, msg);
   }
   return (await res.json()) as T;
@@ -118,6 +127,13 @@ function listQuery(params: ListParams): URLSearchParams {
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
+  /** Вход в UI по ключу: сервер ставит cookie HttpOnly, ключ в браузере не хранится. */
+  login: (key: string) =>
+    request<{ required: boolean; ok: boolean }>("/api/v1/auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    }),
   config: () => request<AppConfig>("/api/v1/config"),
   parseOne: (raw_address: string) =>
     request<ExplainRecord>("/api/v1/parse?explain=true", {
@@ -184,6 +200,7 @@ export const api = {
         } catch {
           /* не JSON */
         }
+        authRequired(xhr.status);
         reject(new ApiError(xhr.status, String(msg)));
       };
       xhr.onerror = () => reject(new ApiError(0, "network error"));

@@ -668,12 +668,20 @@ def _csv(rows: list[dict[str, Any]], keys: list[str], sources: bool) -> str:
     return "\ufeff" + buf.getvalue()
 
 
+# с этих символов Excel начинает формулу: адрес из чужой системы не должен выполниться при открытии CSV
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
 def _cell(v: Any) -> str:
     if v is None:
         return ""
     if isinstance(v, io_format.RawFloat):
         return v.text
-    return str(v)
+    s = str(v)
+    # только строки: числа (id) безопасны и должны остаться как есть
+    if isinstance(v, str) and s.startswith(FORMULA_START):
+        return "'" + s
+    return s
 
 
 def delete(sid: str) -> bool:

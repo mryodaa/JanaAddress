@@ -146,3 +146,22 @@ export const IconSettings = (p: P) => (
     <circle cx="10" cy="17" r="2" />
   </Svg>
 );
+export const IconBook = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
+    <path d="M6 6h10M6 10h10" />
+  </Svg>
+);
+export const IconCode = (p: P) => (
+  <Svg {...p}>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </Svg>
+);
+export const IconExternalLink = (p: P) => (
+  <Svg {...p}>
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" y1="14" x2="21" y2="3" />
+  </Svg>
+);

@@ -15,6 +15,8 @@ docker compose up --build
 # http://localhost:8000/docs — OpenAPI
 ```
 
+Порт открыт только на этом компьютере (`127.0.0.1`). Ключ доступа к API и UI, проверка Origin/Host и встраивание между сервисами: [docs/SECURITY.md](docs/SECURITY.md).
+
 Healthcheck compose ждёт `GET /api/v1/health` (готовность наступает меньше чем через секунду после старта: справочник грузится при старте).
 
 Колёса зависимостей в `vendor/wheels` собраны под x86_64, поэтому в compose задано `platform: linux/amd64`: на Mac с Apple Silicon образ собирается и работает через эмуляцию (Rosetta), без интернета. Модель проверяется уже при сборке: если `models/tagger.onnx` не загружается, `docker build` падает, а не запускает сервис на одних правилах.

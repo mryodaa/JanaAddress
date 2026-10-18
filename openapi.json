@@ -6,6 +6,88 @@
   "version": "0.1.0"
  },
  "paths": {
+  "/api/v1/auth": {
+   "get": {
+    "tags": [
+     "service"
+    ],
+    "summary": "Нужен ли ключ и принят ли он (для UI)",
+    "operationId": "auth_status_api_v1_auth_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthOut"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "service"
+    ],
+    "summary": "Вход в UI по ключу: ставит cookie (HttpOnly, SameSite=Strict)",
+    "operationId": "auth_login_api_v1_auth_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AuthIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthOut"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "неверный ключ"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "service"
+    ],
+    "summary": "Выйти из UI: удалить cookie",
+    "operationId": "auth_logout_api_v1_auth_delete",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/parse/batch": {
    "post": {
     "tags": [
@@ -1203,6 +1285,37 @@
  },
  "components": {
   "schemas": {
+   "AuthIn": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     }
+    },
+    "type": "object",
+    "required": [
+     "key"
+    ],
+    "title": "AuthIn"
+   },
+   "AuthOut": {
+    "properties": {
+     "required": {
+      "type": "boolean",
+      "title": "Required"
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     }
+    },
+    "type": "object",
+    "required": [
+     "required",
+     "ok"
+    ],
+    "title": "AuthOut"
+   },
    "ConfigOut": {
     "properties": {
      "uncertain_threshold": {

@@ -141,10 +141,25 @@ export interface TranslationDictionary {
   thresholdHint: string;
   thresholdDefault: string;
   thresholdReset: string;
+  // документация API (Swagger, ReDoc, OpenAPI)
+  docsMenuTitle: string;
+  docsSwaggerTitle: string;
+  docsSwaggerDesc: string;
+  docsRedocTitle: string;
+  docsRedocDesc: string;
+  docsOpenApiTitle: string;
+  docsOpenApiDesc: string;
   err413: string;
   err422: string;
   err409: string;
   err404: string;
+  // вход по ключу (JANA_API_KEY на сервисе)
+  err401: string;
+  authTitle: string;
+  authHint: string;
+  authKeyLabel: string;
+  authSubmit: string;
+  authWrong: string;
   errServer: string;
   positionUnknown: string;
 

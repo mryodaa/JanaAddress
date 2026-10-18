@@ -74,9 +74,12 @@ def loads(data: bytes | str) -> tuple[list[dict[str, Any]], Container]:
         lines = [ln for ln in stripped.splitlines() if ln.strip()]
         try:
             items = [_parse(ln) for ln in lines]
-        except json.JSONDecodeError:
+        except ValueError:
             raise InputFormatError(f"не JSON и не JSONL: {exc}") from exc
         return [_as_record(i) for i in items], Container("jsonl")
+    except ValueError as exc:
+        # синтаксис верный, значение нет: целое длиннее 4300 цифр (лимит Python) — ошибка входа, а не сервера
+        raise InputFormatError(f"недопустимое значение: {exc}") from exc
     return from_obj(obj)
 
 

@@ -46,8 +46,18 @@ _ERRORS: dict[int | str, dict[str, Any]] = {
 }
 
 
+# запас на заголовки и границы multipart поверх самого файла
+MULTIPART_SLACK = 64 * 1024
+
+
 async def read_payload(request: Request) -> bytes:
-    """JSON-тело или первый файл из multipart, как есть, без перекодирования."""
+    """JSON-тело или первый файл из multipart, как есть, без перекодирования. Лимит проверяется до чтения
+    (Content-Length) и по ходу чтения: тело больше лимита не попадает в память целиком."""
+    limit = config.MAX_UPLOAD_MB * 1024 * 1024
+    too_big = HTTPException(413, f"файл больше {config.MAX_UPLOAD_MB} МБ")
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > limit + MULTIPART_SLACK:
+        raise too_big
     ctype = request.headers.get("content-type", "").lower()
     if ctype.startswith("multipart/form-data"):
         form = await request.form()
@@ -56,9 +66,16 @@ async def read_payload(request: Request) -> bytes:
             raise HTTPException(400, "в multipart нет файла (ожидается поле file)")
         data: bytes = await upload.read()
     else:
-        data = await request.body()
-    if len(data) > config.MAX_UPLOAD_MB * 1024 * 1024:
-        raise HTTPException(413, f"файл больше {config.MAX_UPLOAD_MB} МБ")
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise too_big
+            chunks.append(chunk)
+        data = b"".join(chunks)
+    if len(data) > limit:
+        raise too_big
     return data
 
 

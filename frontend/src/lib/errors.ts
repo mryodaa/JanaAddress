@@ -4,6 +4,7 @@ import type { Language, TranslationKey } from "../i18n/types";
 type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
 const BY_STATUS: Partial<Record<number, TranslationKey>> = {
+  401: "err401",
   404: "err404",
   409: "err409",
   413: "err413",
